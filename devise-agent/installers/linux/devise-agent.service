@@ -1,0 +1,19 @@
+[Unit]
+Description=Devise Desktop Agent
+Documentation=https://devise.ai
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/devise-agent/devise-agent
+Restart=always
+RestartSec=10
+User=root
+Environment=DEVISE_CONFIG_PATH=/etc/devise/config.json
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=devise-agent
+
+[Install]
+WantedBy=multi-user.target
