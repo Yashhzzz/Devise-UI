@@ -1,13 +1,16 @@
 /**
  * Devise Dashboard — API service layer
- * Backend: FastAPI on http://localhost:8000
+ * Backend: FastAPI deployed as Vercel serverless function
  * Auth: Supabase JWT attached to every request
+ *
+ * API_BASE is empty so that all requests use relative URLs.
+ * This works on both localhost (via Vite proxy) and Vercel (same origin).
  */
 
 import type { DetectionEvent, HeartbeatEvent } from "@/data/mockData";
 import { supabase } from "@/lib/supabase";
 
-export const API_BASE = "http://localhost:8000";
+export const API_BASE = "";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const {
@@ -22,14 +25,17 @@ async function apiFetch<T>(
   params?: Record<string, string | number>,
   init?: RequestInit
 ): Promise<T> {
-  const url = new URL(`${API_BASE}${path}`);
+  let url = `${API_BASE}${path}`;
   if (params) {
+    const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+      if (v !== undefined && v !== null) qs.set(k, String(v));
     });
+    const qsStr = qs.toString();
+    if (qsStr) url += `?${qsStr}`;
   }
   const headers = await getAuthHeaders();
-  const res = await fetch(url.toString(), {
+  const res = await fetch(url, {
     ...init,
     headers: { ...headers, ...(init?.headers || {}) },
   });

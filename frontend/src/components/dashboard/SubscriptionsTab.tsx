@@ -1,7 +1,13 @@
+import { useMemo } from "react";
 import { Plus, AlertTriangle } from "lucide-react";
+import { useSubscriptions, useSpendOverview } from "@/hooks/useDashboard";
+import type { SubscriptionItem, SpendOverview } from "@/services/api";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface Sub {
-  id: number;
+  id: string;
   name: string;
   vendor: string;
   seats: number;
@@ -14,22 +20,85 @@ interface Sub {
   bg: string;
 }
 
-const subscriptions: Sub[] = [
-  { id: 1, name: "ChatGPT Teams", vendor: "OpenAI", seats: 40, active: 28, util: 70, cost: "₹42,000/mo", status: "Active", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#10A37F" },
-  { id: 2, name: "GitHub Copilot", vendor: "Microsoft", seats: 50, active: 34, util: 68, cost: "₹51,000/mo", status: "Active", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#181717" },
-  { id: 3, name: "Midjourney", vendor: "Midjourney Inc.", seats: 20, active: 8, util: 40, cost: "₹16,000/mo", status: "Zombie", cycle: "Monthly", renewal: "Renews next month", bg: "#FF5C1A" },
-  { id: 4, name: "Claude Pro", vendor: "Anthropic", seats: 15, active: 12, util: 80, cost: "₹18,000/mo", status: "Active", cycle: "Monthly", renewal: "Renews next month", bg: "#D97706" },
-  { id: 5, name: "Perplexity Pro", vendor: "Perplexity AI", seats: 25, active: 6, util: 24, cost: "₹8,000/mo", status: "Zombie", cycle: "Monthly", renewal: "Renews next month", bg: "#0F172A" },
-  { id: 6, name: "Notion AI", vendor: "Notion Labs", seats: 30, active: 28, util: 93, cost: "₹9,000/mo", status: "Active", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#000000" },
-  { id: 7, name: "Runway Gen-3", vendor: "Runway", seats: 10, active: 2, util: 20, cost: "₹12,000/mo", status: "Zombie", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#8B5CF6" },
-  { id: 8, name: "Cursor Pro", vendor: "Anysphere", seats: 20, active: 19, util: 95, cost: "₹14,000/mo", status: "Active", cycle: "Monthly", renewal: "Renews next month", bg: "#3B82F6" },
-  { id: 9, name: "Jasper AI", vendor: "Jasper", seats: 15, active: 3, util: 20, cost: "₹11,000/mo", status: "Zombie", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#EC4899" },
-  { id: 10, name: "Grammarly Business", vendor: "Grammarly", seats: 40, active: 35, util: 87, cost: "₹7,000/mo", status: "Active", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#10B981" },
-  { id: 11, name: "Replicate", vendor: "Replicate", seats: 5, active: 1, util: 20, cost: "₹6,000/mo", status: "Zombie", cycle: "Monthly", renewal: "Renews next month", bg: "#000000" },
-  { id: 12, name: "Gemini Advanced", vendor: "Google", seats: 20, active: 17, util: 85, cost: "₹8,000/mo", status: "Active", cycle: "Annual contract", renewal: "Renews Jan 2027", bg: "#4285F4" },
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+const COLOR_PALETTE = [
+  "#10A37F", "#181717", "#FF5C1A", "#D97706", "#0F172A",
+  "#000000", "#8B5CF6", "#3B82F6", "#EC4899", "#10B981",
+  "#4285F4", "#6366F1", "#14B8A6", "#F43F5E", "#8B5CF6",
 ];
 
+function hashStringToIndex(str: string, max: number): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % max;
+}
+
+function formatINR(amount: number): string {
+  // Format as Indian locale with ₹
+  return "\u20B9" + amount.toLocaleString("en-IN");
+}
+
+function formatRenewalDate(dateStr: string | null): string {
+  if (!dateStr) return "\u2014";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "\u2014";
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  if (diffMs < 0) return "Expired";
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffDays < 30) return "Renews next month";
+  const month = d.toLocaleString("en-US", { month: "short" });
+  const year = d.getFullYear();
+  return `Renews ${month} ${year}`;
+}
+
+function mapSubscriptionItem(item: SubscriptionItem): Sub {
+  const util = item.seats > 0 ? Math.round((item.seats_used / item.seats) * 100) : 0;
+  const statusMap: Record<SubscriptionItem["status"], Sub["status"]> = {
+    active: "Active",
+    zombie: "Zombie",
+    trial: "Active",
+    cancelled: "Zombie",
+  };
+
+  return {
+    id: item.id,
+    name: item.tool_name,
+    vendor: item.vendor,
+    seats: item.seats,
+    active: item.seats_used,
+    util,
+    cost: `${formatINR(item.cost_monthly)}/mo`,
+    status: statusMap[item.status],
+    cycle: item.renewal_date ? "Annual contract" : "Monthly",
+    renewal: formatRenewalDate(item.renewal_date),
+    bg: COLOR_PALETTE[hashStringToIndex(item.tool_name, COLOR_PALETTE.length)],
+  };
+}
+
+// ─── MAIN COMPONENT ─────────────────────────────────────────────────────────
+
 export function SubscriptionsTab() {
+  const { data: subscriptionItems, isLoading: subsLoading, error: subsError } = useSubscriptions();
+  const { data: spendOverview, isLoading: spendLoading, error: spendError } = useSpendOverview();
+
+  const isLoading = subsLoading || spendLoading;
+  const error = subsError || spendError;
+
+  const subscriptions: Sub[] = useMemo(() => {
+    if (!subscriptionItems) return [];
+    return subscriptionItems.map(mapSubscriptionItem);
+  }, [subscriptionItems]);
+
+  // Computed stats (fallback to spend overview, then compute from subscriptions)
+  const totalMonthlySpend = spendOverview?.totalMonthlySpend ?? (subscriptionItems?.reduce((sum, s) => sum + s.cost_monthly, 0) ?? 0);
+  const totalTools = subscriptions.length;
+  const zombieLicenses = spendOverview?.zombieLicenses ?? subscriptions.filter(s => s.status === "Zombie").length;
+  const zombieCost = spendOverview?.zombieCost ?? (subscriptionItems?.filter(s => s.status === "zombie" || s.status === "cancelled").reduce((sum, s) => sum + s.cost_monthly, 0) ?? 0);
+
   const CardInfo = ({ title, value, sub }: { title: string; value: string; sub: React.ReactNode }) => (
     <div
       className="flex-1 flex flex-col justify-center"
@@ -101,6 +170,103 @@ export function SubscriptionsTab() {
     }
   };
 
+  // ─── Loading skeleton ──────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6 w-full max-w-[1400px] mx-auto pb-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Subscriptions</h1>
+            <p className="mt-1" style={{ fontSize: 14, color: "#94A3B8", fontFamily: "Inter, sans-serif" }}>Manage all AI tool licenses and spending</p>
+          </div>
+          <Skeleton className="h-9 w-40 rounded-xl" />
+        </div>
+        <div className="flex gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="flex-1" style={{ borderRadius: 20, padding: "20px 24px", border: "1px solid #F0F2F5" }}>
+              <Skeleton className="h-3 w-24 mb-3" />
+              <Skeleton className="h-9 w-28 mb-2" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center" style={{ backgroundColor: "#ffffff", border: "1px solid #F0F2F5", borderRadius: 20, padding: "20px 24px", gap: 20 }}>
+              <Skeleton className="h-11 w-11 rounded-full flex-shrink-0" />
+              <div className="flex-1">
+                <Skeleton className="h-4 w-28 mb-2" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <div className="flex-1">
+                <Skeleton className="h-3 w-full" />
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <Skeleton className="h-5 w-14" />
+                <Skeleton className="h-5 w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Error state ───────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <div className="flex flex-col gap-6 w-full max-w-[1400px] mx-auto pb-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Subscriptions</h1>
+            <p className="mt-1" style={{ fontSize: 14, color: "#94A3B8", fontFamily: "Inter, sans-serif" }}>Manage all AI tool licenses and spending</p>
+          </div>
+        </div>
+        <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 16, padding: "16px 20px" }}>
+          <p style={{ fontSize: 14, color: "#DC2626", fontWeight: 500 }}>
+            Failed to load subscriptions: {error.message}
+          </p>
+          <p style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>
+            Data will retry automatically. Check your connection if this persists.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Empty state ───────────────────────────────────────────────────────
+  if (subscriptions.length === 0) {
+    return (
+      <div className="flex flex-col gap-6 w-full max-w-[1400px] mx-auto pb-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Subscriptions</h1>
+            <p className="mt-1" style={{ fontSize: 14, color: "#94A3B8", fontFamily: "Inter, sans-serif" }}>Manage all AI tool licenses and spending</p>
+          </div>
+          <button
+            className="flex items-center gap-2 hover:-translate-y-[1px] transition-all duration-200"
+            style={{ backgroundColor: "#FF5C1A", color: "#ffffff", padding: "8px 16px", borderRadius: 12, fontFamily: "Inter, sans-serif", fontWeight: 500, fontSize: 14, boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#E5521A")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#FF5C1A")}
+          >
+            <Plus size={16} strokeWidth={2} />
+            Add Subscription
+          </button>
+        </div>
+        <div className="flex gap-4">
+          <CardInfo title="MONTHLY SPEND" value={formatINR(0)} sub={<>No spend data</>} />
+          <CardInfo title="TOTAL TOOLS" value="0" sub={<><span className="w-2 h-2 rounded-full bg-[#16A34A]" />No subscriptions</>} />
+          <CardInfo title="WASTED SPEND" value={formatINR(0)} sub={<><span className="w-2 h-2 rounded-full bg-[#DC2626]" />0 zombie licenses</>} />
+        </div>
+        <div style={{ backgroundColor: "#ffffff", border: "1px solid #F0F2F5", borderRadius: 20, padding: "48px 24px" }} className="flex flex-col items-center justify-center">
+          <Plus size={40} strokeWidth={1.5} color="#CBD5E1" />
+          <p className="mt-4 font-medium" style={{ fontSize: 16, color: "#94A3B8" }}>No subscriptions yet</p>
+          <p style={{ fontSize: 13, color: "#CBD5E1", marginTop: 4 }}>Add your first AI tool subscription to start tracking</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-[1400px] mx-auto pb-10">
       {/* Header */}
@@ -145,10 +311,10 @@ export function SubscriptionsTab() {
 
       {/* Stats Row */}
       <div className="flex gap-4">
-        <CardInfo title="MONTHLY SPEND" value="₹1,49,000" sub={<>↑ 8% vs last month</>} />
+        <CardInfo title="MONTHLY SPEND" value={formatINR(totalMonthlySpend)} sub={<>Across {totalTools} tools</>} />
         <CardInfo
           title="TOTAL TOOLS"
-          value="12"
+          value={String(totalTools)}
           sub={
             <>
               <span className="w-2 h-2 rounded-full bg-[#16A34A]" />
@@ -158,53 +324,55 @@ export function SubscriptionsTab() {
         />
         <CardInfo
           title="WASTED SPEND"
-          value="₹48,000"
+          value={formatINR(zombieCost)}
           sub={
             <>
               <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
-              6 zombie licenses
+              {zombieLicenses} zombie licenses
             </>
           }
         />
       </div>
 
-      {/* Zombie Alert Banner */}
-      <div
-        className="flex items-center justify-between"
-        style={{
-          backgroundColor: "#FFF3EE",
-          border: "1px solid #FDDCC8",
-          borderRadius: 16,
-          padding: "16px 20px",
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <AlertTriangle size={20} color="#FF5C1A" strokeWidth={2} />
-          <span
-            style={{
-              color: "#1A1A2E",
-              fontFamily: "Inter, sans-serif",
-              fontSize: 14,
-              fontWeight: 500,
-            }}
-          >
-            <span style={{ fontWeight: 700 }}>6 zombie licenses detected</span> — potential savings of ₹48,000/month
-          </span>
-        </div>
-        <button
+      {/* Zombie Alert Banner — only show if zombies exist */}
+      {zombieLicenses > 0 && (
+        <div
+          className="flex items-center justify-between"
           style={{
-            color: "#FF5C1A",
-            fontFamily: "Inter, sans-serif",
-            fontSize: 14,
-            fontWeight: 600,
-            background: "none",
-            border: "none",
-            cursor: "pointer",
+            backgroundColor: "#FFF3EE",
+            border: "1px solid #FDDCC8",
+            borderRadius: 16,
+            padding: "16px 20px",
           }}
         >
-          Review Now &rarr;
-        </button>
-      </div>
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} color="#FF5C1A" strokeWidth={2} />
+            <span
+              style={{
+                color: "#1A1A2E",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>{zombieLicenses} zombie licenses detected</span> — potential savings of {formatINR(zombieCost)}/month
+            </span>
+          </div>
+          <button
+            style={{
+              color: "#FF5C1A",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 14,
+              fontWeight: 600,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Review Now &rarr;
+          </button>
+        </div>
+      )}
 
       {/* Grid of Subscriptions */}
       <div

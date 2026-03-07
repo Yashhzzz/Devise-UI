@@ -1,6 +1,8 @@
-import { Code2, MessageSquare, Image, X } from "lucide-react";
-import { useState } from "react";
+import { Code2, X } from "lucide-react";
+import { useState, useMemo } from "react";
 import { useToast } from "@/components/ui/use-toast";
+import { useSubscriptions } from "@/hooks/useDashboard";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -14,36 +16,14 @@ interface Sub {
   badge: "active" | "zombie";
 }
 
-// ─── Data ──────────────────────────────────────────────────────────────────
+// ─── Color palette for subscriptions ───────────────────────────────────────
 
-const subs: Sub[] = [
-  {
-    iconBg: "#F0FFF4",
-    icon: Code2,
-    iconColor: "#16A34A",
-    name: "GitHub Copilot",
-    seats: "34 seats active",
-    price: "₹51,000/mo",
-    badge: "active",
-  },
-  {
-    iconBg: "#FFF7ED",
-    icon: MessageSquare,
-    iconColor: "#FF5C1A",
-    name: "ChatGPT Teams",
-    seats: "28 seats active",
-    price: "₹42,000/mo",
-    badge: "active",
-  },
-  {
-    iconBg: "#FEF2F2",
-    icon: Image,
-    iconColor: "#DC2626",
-    name: "Midjourney",
-    seats: "8 seats — 3 unused",
-    price: "₹16,000/mo",
-    badge: "zombie",
-  },
+const subColors = [
+  { iconBg: "#F0FFF4", iconColor: "#16A34A" },
+  { iconBg: "#FFF7ED", iconColor: "#FF5C1A" },
+  { iconBg: "#FEF2F2", iconColor: "#DC2626" },
+  { iconBg: "#EFF6FF", iconColor: "#3B82F6" },
+  { iconBg: "#F5F3FF", iconColor: "#8B5CF6" },
 ];
 
 // ─── Badge ─────────────────────────────────────────────────────────────────
@@ -122,6 +102,26 @@ function SubRow({ sub, last, onClick }: { sub: Sub; last: boolean; onClick?: () 
 
 export function SubscriptionList({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const { data: subscriptions, isLoading, error } = useSubscriptions();
+
+  const topSubs: Sub[] = useMemo(() => {
+    if (!subscriptions?.length) return [];
+    return [...subscriptions]
+      .sort((a, b) => b.cost_monthly - a.cost_monthly)
+      .slice(0, 3)
+      .map((item, i) => {
+        const colors = subColors[i % subColors.length];
+        return {
+          iconBg: colors.iconBg,
+          icon: Code2,
+          iconColor: colors.iconColor,
+          name: item.tool_name,
+          seats: `${item.seats_used} of ${item.seats} seats active`,
+          price: `₹${item.cost_monthly.toLocaleString("en-IN")}/mo`,
+          badge: item.status === "zombie" ? "zombie" as const : "active" as const,
+        };
+      });
+  }, [subscriptions]);
 
   return (
     <div
@@ -167,9 +167,45 @@ export function SubscriptionList({ onNavigate }: { onNavigate?: (tab: string) =>
 
       {/* Rows */}
       <div>
-        {subs.map((sub, i) => (
-          <SubRow key={sub.name} sub={sub} last={i === subs.length - 1} onClick={() => onNavigate?.("subscriptions")} />
-        ))}
+        {isLoading ? (
+          // Skeleton loading rows
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={`skel-${i}`}
+              className="flex items-center gap-3"
+              style={{
+                padding: "12px 4px",
+                borderBottom: i === 2 ? "none" : "1px solid #F5F5F5",
+              }}
+            >
+              <Skeleton className="rounded-xl flex-shrink-0" style={{ width: 38, height: 38 }} />
+              <div className="flex-1 min-w-0 flex flex-col gap-1">
+                <Skeleton className="w-28 h-4 rounded" />
+                <Skeleton className="w-20 h-3 rounded" />
+              </div>
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <Skeleton className="w-20 h-4 rounded" />
+                <Skeleton className="w-14 h-5 rounded-full" />
+              </div>
+            </div>
+          ))
+        ) : error ? (
+          <div style={{ padding: "20px 4px", textAlign: "center" }}>
+            <p style={{ fontSize: 13, color: "#DC2626" }}>
+              Failed to load subscriptions
+            </p>
+          </div>
+        ) : topSubs.length === 0 ? (
+          <div style={{ padding: "20px 4px", textAlign: "center" }}>
+            <p style={{ fontSize: 13, color: "#94A3B8" }}>
+              No subscriptions
+            </p>
+          </div>
+        ) : (
+          topSubs.map((sub, i) => (
+            <SubRow key={sub.name} sub={sub} last={i === topSubs.length - 1} onClick={() => onNavigate?.("subscriptions")} />
+          ))
+        )}
       </div>
 
       <AddSubscriptionModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />

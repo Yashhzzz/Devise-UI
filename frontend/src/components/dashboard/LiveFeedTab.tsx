@@ -8,48 +8,29 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { useEvents, useStats } from "@/hooks/useDashboard";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { DetectionEvent } from "@/data/mockData";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type CategoryKey = "api" | "coding" | "video" | "search" | "image" | "productivity";
 type RiskKey = "high" | "medium" | "low";
 
-interface Event {
-  id: string;
-  time: string;
-  tool: string;
-  vendor: string;
-  category: CategoryKey;
-  risk: RiskKey;
-  process: string;
-  domain: string;
-  department: string;
-  approved: boolean;
-}
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
-// ─── Static data ───────────────────────────────────────────────────────────
-
-const events: Event[] = [
-  { id:"1",  time:"2min ago",  tool:"OpenAI API",    vendor:"OpenAI",      category:"api",          risk:"high",   process:"python.exe",  domain:"api.openai.com",      department:"Engineering", approved:false },
-  { id:"2",  time:"5min ago",  tool:"Claude",        vendor:"Anthropic",   category:"api",          risk:"high",   process:"node.exe",    domain:"api.anthropic.com",   department:"Product",     approved:false },
-  { id:"3",  time:"8min ago",  tool:"GitHub Copilot",vendor:"Microsoft",   category:"coding",       risk:"low",    process:"Code.exe",    domain:"copilot.github.com",  department:"Engineering", approved:true  },
-  { id:"4",  time:"12min ago", tool:"Gemini",        vendor:"Google",      category:"productivity", risk:"low",    process:"chrome.exe",  domain:"gemini.google.com",   department:"Marketing",   approved:true  },
-  { id:"5",  time:"18min ago", tool:"Runway",        vendor:"Runway",      category:"video",        risk:"high",   process:"chrome.exe",  domain:"runwayml.com",        department:"Design",      approved:false },
-  { id:"6",  time:"25min ago", tool:"Perplexity",    vendor:"Perplexity",  category:"search",       risk:"medium", process:"chrome.exe",  domain:"perplexity.ai",       department:"Product",     approved:false },
-  { id:"7",  time:"1hr ago",   tool:"Midjourney",    vendor:"Midjourney",  category:"image",        risk:"high",   process:"chrome.exe",  domain:"midjourney.com",      department:"Design",      approved:false },
-  { id:"8",  time:"2hr ago",   tool:"Cursor",        vendor:"Anysphere",   category:"coding",       risk:"medium", process:"Cursor.exe",  domain:"cursor.sh",           department:"Engineering", approved:true  },
-  { id:"9",  time:"3hr ago",   tool:"Replicate",     vendor:"Replicate",   category:"api",          risk:"high",   process:"python.exe",  domain:"replicate.com",       department:"Engineering", approved:false },
-  { id:"10", time:"4hr ago",   tool:"Notion AI",     vendor:"Notion",      category:"productivity", risk:"low",    process:"chrome.exe",  domain:"notion.so",           department:"Operations",  approved:true  },
-];
-
-const allEvents: Event[] = [...events];
-for (let i = 11; i <= 247; i++) {
-  const seed = events[(i - 1) % events.length];
-  allEvents.push({
-    ...seed,
-    id: i.toString(),
-    time: `${Math.floor(Math.random() * 59) + 1}min ago`,
-  });
+function formatRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diffMs = now - then;
+  if (diffMs < 0) return "just now";
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}hr ago`;
+  const d = new Date(timestamp);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 // ─── Badge configs ──────────────────────────────────────────────────────────
@@ -62,6 +43,8 @@ const categoryConf: Record<CategoryKey, { label: string; bg: string; text: strin
   image:        { label:"Image",        bg:"rgba(236,72,153,0.08)",  text:"#DB2777", border:"rgba(236,72,153,0.2)"  },
   productivity: { label:"Productivity", bg:"rgba(34,197,94,0.08)",   text:"#16A34A", border:"rgba(34,197,94,0.2)"   },
 };
+
+const defaultCategoryConf = { label: "Other", bg: "rgba(100,116,139,0.08)", text: "#64748B", border: "rgba(100,116,139,0.2)" };
 
 const riskConf: Record<RiskKey, { label: string; bg: string; text: string; border: string }> = {
   high:   { label:"High",   bg:"rgba(220,38,38,0.08)",   text:"#DC2626", border:"rgba(220,38,38,0.2)"   },
@@ -94,11 +77,13 @@ function Pill({ bg, text, border, label }: { bg: string; text: string; border: s
 function KpiCard({
   label, value, sub,
   orange = false,
+  isLoading = false,
 }: {
   label: string;
   value: string;
   sub: React.ReactNode;
   orange?: boolean;
+  isLoading?: boolean;
 }) {
   return (
     <div
@@ -128,12 +113,16 @@ function KpiCard({
       >
         {label}
       </p>
-      <p
-        className="font-bold mt-2 leading-none"
-        style={{ fontSize: 32, color: orange ? "#ffffff" : "#1A1A2E", fontFamily: "Inter, sans-serif" }}
-      >
-        {value}
-      </p>
+      {isLoading ? (
+        <Skeleton className="h-8 w-16 mt-2" style={{ backgroundColor: orange ? "rgba(255,255,255,0.2)" : undefined }} />
+      ) : (
+        <p
+          className="font-bold mt-2 leading-none"
+          style={{ fontSize: 32, color: orange ? "#ffffff" : "#1A1A2E", fontFamily: "Inter, sans-serif" }}
+        >
+          {value}
+        </p>
+      )}
       <div className="flex items-center gap-1.5 mt-2">{sub}</div>
     </div>
   );
@@ -181,6 +170,29 @@ function SelectDropdown({
   );
 }
 
+// ─── Skeleton rows for loading state ────────────────────────────────────────
+
+function TableRowSkeleton() {
+  return (
+    <tr style={{ borderBottom: "1px solid #F8FAFC" }}>
+      <td style={{ padding: "0 0 0 20px", width: 36 }}>
+        <Skeleton className="h-4 w-4 rounded" />
+      </td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-4 w-16" /></td>
+      <td style={{ padding: "18px 12px" }}>
+        <Skeleton className="h-4 w-24 mb-1" />
+        <Skeleton className="h-3 w-16" />
+      </td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-5 w-16 rounded-full" /></td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-5 w-14 rounded-full" /></td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-4 w-20" /></td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-4 w-28" /></td>
+      <td style={{ padding: "18px 12px" }}><Skeleton className="h-4 w-20" /></td>
+      <td style={{ padding: "18px 20px 18px 12px" }}><Skeleton className="h-4 w-4 rounded-full" /></td>
+    </tr>
+  );
+}
+
 // ─── Main exported component ────────────────────────────────────────────────
 
 export function LiveFeedTab() {
@@ -194,9 +206,27 @@ export function LiveFeedTab() {
   const [riskFilter, setRiskFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
 
-  const filteredEvents = allEvents.filter(ev => {
-    if (categoryFilter && ev.category !== categoryFilter) return false;
-    if (riskFilter && ev.risk !== riskFilter) return false;
+  // API hooks — pass category and risk filters to the API
+  const {
+    data: eventsData,
+    isLoading: eventsLoading,
+    error: eventsError,
+  } = useEvents(
+    categoryFilter || undefined,
+    riskFilter || undefined,
+  );
+
+  const {
+    data: statsData,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useStats();
+
+  // Map API events to display rows
+  const apiEvents: DetectionEvent[] = eventsData?.events ?? [];
+
+  // Client-side filter for vendor (sourceFilter)
+  const filteredEvents = apiEvents.filter(ev => {
     if (sourceFilter && ev.vendor !== sourceFilter) return false;
     return true;
   });
@@ -239,13 +269,13 @@ export function LiveFeedTab() {
     });
   };
 
-  const isAllChecked = paginatedEvents.length > 0 && paginatedEvents.every(ev => checked.has(ev.id));
+  const isAllChecked = paginatedEvents.length > 0 && paginatedEvents.every(ev => checked.has(ev.event_id));
   const toggleAll = () => {
     if (isAllChecked) {
       setChecked(new Set());
     } else {
       const newChecked = new Set(checked);
-      paginatedEvents.forEach(ev => newChecked.add(ev.id));
+      paginatedEvents.forEach(ev => newChecked.add(ev.event_id));
       setChecked(newChecked);
     }
   };
@@ -268,6 +298,12 @@ export function LiveFeedTab() {
   };
 
   const cols = ["", "TIME", "TOOL", "CATEGORY", "RISK", "PROCESS", "DOMAIN", "DEPARTMENT", "APPROVED"];
+
+  // KPI values from stats API
+  const kpiEventsToday = statsData?.totalDetections ?? 0;
+  const kpiUniqueTools = statsData?.uniqueTools ?? 0;
+  const kpiHighRisk = statsData?.highRiskCount ?? 0;
+  const kpiUnapproved = statsData?.unapprovedCount ?? 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -307,26 +343,33 @@ export function LiveFeedTab() {
             Live
           </span>
           <span style={{ fontSize: 12, color: "#94A3B8" }}>
-            · Auto-refreshing every 30s
+            · Auto-refreshing every 10s
           </span>
         </div>
       </div>
 
       {/* ── Section 2: KPI strip ─────────────────────────────────────── */}
+      {statsError && (
+        <p style={{ fontSize: 13, color: "#DC2626", padding: "4px 0" }}>
+          Failed to load stats. Retrying…
+        </p>
+      )}
       <div className="flex gap-4">
         <KpiCard
           label="Events Today"
-          value="247"
+          value={String(kpiEventsToday)}
           orange
+          isLoading={statsLoading}
           sub={
             <span style={{ fontSize: 12, color: "rgba(255,255,255,0.80)" }}>
-              ↑ 12% vs yesterday
+              Detected today
             </span>
           }
         />
         <KpiCard
           label="Unique Tools"
-          value="34"
+          value={String(kpiUniqueTools)}
+          isLoading={statsLoading}
           sub={
             <>
               <span className="rounded-full" style={{ width: 7, height: 7, backgroundColor: "#3B82F6", display: "inline-block" }} />
@@ -336,7 +379,8 @@ export function LiveFeedTab() {
         />
         <KpiCard
           label="High Risk"
-          value="5"
+          value={String(kpiHighRisk)}
+          isLoading={statsLoading}
           sub={
             <>
               <span className="rounded-full" style={{ width: 7, height: 7, backgroundColor: "#DC2626", display: "inline-block" }} />
@@ -346,7 +390,8 @@ export function LiveFeedTab() {
         />
         <KpiCard
           label="Unapproved"
-          value="13"
+          value={String(kpiUnapproved)}
+          isLoading={statsLoading}
           sub={
             <>
               <span className="rounded-full" style={{ width: 7, height: 7, backgroundColor: "#D97706", display: "inline-block" }} />
@@ -436,6 +481,11 @@ export function LiveFeedTab() {
       </div>
 
       {/* ── Section 4: Main event table ───────────────────────────────── */}
+      {eventsError && (
+        <p style={{ fontSize: 13, color: "#DC2626", padding: "4px 0" }}>
+          Failed to load events. Retrying…
+        </p>
+      )}
       <div
         style={{
           backgroundColor: "#ffffff",
@@ -492,153 +542,173 @@ export function LiveFeedTab() {
 
             {/* Rows */}
             <tbody style={{ opacity: isFading ? 0 : 1, transition: "opacity 200ms ease" }}>
-              {paginatedEvents.map((ev, idx) => {
-                const isChecked = checked.has(ev.id);
-                const isLast = idx === paginatedEvents.length - 1;
-                const cat = categoryConf[ev.category];
-                const risk = riskConf[ev.risk];
-                return (
-                  <tr
-                    key={ev.id}
-                    className="cursor-pointer transition-colors"
-                    style={{
-                      backgroundColor: isChecked ? "#FFF8F5" : "transparent",
-                      borderBottom: isLast ? "none" : "1px solid #F8FAFC",
-                      minHeight: 60,
-                      transition: "background-color 150ms ease",
-                    }}
-                    onMouseEnter={e => { if (!isChecked) (e.currentTarget as HTMLElement).style.backgroundColor = "#FAFAFA"; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isChecked ? "#FFF8F5" : "transparent"; }}
-                  >
-                    {/* Checkbox */}
-                    <td style={{ padding: "0 0 0 20px", width: 36 }}>
-                      <div
-                        onClick={() => toggle(ev.id)}
-                        className="flex items-center justify-center rounded cursor-pointer"
-                        style={{
-                          width: 16, height: 16,
-                          border: isChecked ? "none" : "1.5px solid #D1D5DB",
-                          backgroundColor: isChecked ? "#FF5C1A" : "transparent",
-                          borderRadius: 4,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isChecked && (
-                          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                            <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </div>
-                    </td>
+              {eventsLoading ? (
+                // Skeleton loading rows
+                Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                  <TableRowSkeleton key={`skel-${i}`} />
+                ))
+              ) : paginatedEvents.length === 0 ? (
+                // Empty state
+                <tr>
+                  <td colSpan={cols.length} style={{ padding: "48px 0", textAlign: "center" }}>
+                    <p style={{ fontSize: 15, color: "#94A3B8", fontFamily: "Inter, sans-serif" }}>
+                      No events detected yet
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                paginatedEvents.map((ev, idx) => {
+                  const isChecked = checked.has(ev.event_id);
+                  const isLast = idx === paginatedEvents.length - 1;
+                  const catKey = ev.category as CategoryKey;
+                  const cat = categoryConf[catKey] ?? defaultCategoryConf;
+                  const riskKey = ev.risk_level as RiskKey;
+                  const risk = riskConf[riskKey] ?? riskConf.low;
+                  return (
+                    <tr
+                      key={ev.event_id}
+                      className="cursor-pointer transition-colors"
+                      style={{
+                        backgroundColor: isChecked ? "#FFF8F5" : "transparent",
+                        borderBottom: isLast ? "none" : "1px solid #F8FAFC",
+                        minHeight: 60,
+                        transition: "background-color 150ms ease",
+                      }}
+                      onMouseEnter={e => { if (!isChecked) (e.currentTarget as HTMLElement).style.backgroundColor = "#FAFAFA"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isChecked ? "#FFF8F5" : "transparent"; }}
+                    >
+                      {/* Checkbox */}
+                      <td style={{ padding: "0 0 0 20px", width: 36 }}>
+                        <div
+                          onClick={() => toggle(ev.event_id)}
+                          className="flex items-center justify-center rounded cursor-pointer"
+                          style={{
+                            width: 16, height: 16,
+                            border: isChecked ? "none" : "1.5px solid #D1D5DB",
+                            backgroundColor: isChecked ? "#FF5C1A" : "transparent",
+                            borderRadius: 4,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isChecked && (
+                            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                              <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                      </td>
 
-                    {/* Time */}
-                    <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
-                      <span style={{ fontSize: 13, color: "#94A3B8" }}>{ev.time}</span>
-                    </td>
+                      {/* Time */}
+                      <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 13, color: "#94A3B8" }}>{formatRelativeTime(ev.timestamp)}</span>
+                      </td>
 
-                    {/* Tool + vendor */}
-                    <td style={{ padding: "18px 12px" }}>
-                      <p className="font-semibold" style={{ fontSize: 14, color: "#1A1A2E", lineHeight: 1.3 }}>{ev.tool}</p>
-                      <p style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.3 }}>{ev.vendor}</p>
-                    </td>
+                      {/* Tool + vendor */}
+                      <td style={{ padding: "18px 12px" }}>
+                        <p className="font-semibold" style={{ fontSize: 14, color: "#1A1A2E", lineHeight: 1.3 }}>{ev.tool_name}</p>
+                        <p style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.3 }}>{ev.vendor}</p>
+                      </td>
 
-                    {/* Category badge */}
-                    <td style={{ padding: "18px 12px" }}>
-                      <Pill bg={cat.bg} text={cat.text} border={cat.border} label={cat.label} />
-                    </td>
+                      {/* Category badge */}
+                      <td style={{ padding: "18px 12px" }}>
+                        <Pill bg={cat.bg} text={cat.text} border={cat.border} label={cat.label} />
+                      </td>
 
-                    {/* Risk badge */}
-                    <td style={{ padding: "18px 12px" }}>
-                      <Pill bg={risk.bg} text={risk.text} border={risk.border} label={risk.label} />
-                    </td>
+                      {/* Risk badge */}
+                      <td style={{ padding: "18px 12px" }}>
+                        <Pill bg={risk.bg} text={risk.text} border={risk.border} label={risk.label} />
+                      </td>
 
-                    {/* Process — monospace orange */}
-                    <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
-                      <span style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, color: "#FF5C1A" }}>
-                        {ev.process}
-                      </span>
-                    </td>
+                      {/* Process — monospace orange */}
+                      <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13, color: "#FF5C1A" }}>
+                          {ev.process_name}
+                        </span>
+                      </td>
 
-                    {/* Domain */}
-                    <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
-                      <span style={{ fontSize: 13, color: "#64748B" }}>{ev.domain}</span>
-                    </td>
+                      {/* Domain */}
+                      <td style={{ padding: "18px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 13, color: "#64748B" }}>{ev.domain}</span>
+                      </td>
 
-                    {/* Department */}
-                    <td style={{ padding: "18px 12px" }}>
-                      <span style={{ fontSize: 14, color: "#1A1A2E" }}>{ev.department}</span>
-                    </td>
+                      {/* Department */}
+                      <td style={{ padding: "18px 12px" }}>
+                        <span style={{ fontSize: 14, color: "#1A1A2E" }}>{ev.department}</span>
+                      </td>
 
-                    {/* Approved */}
-                    <td style={{ padding: "18px 20px 18px 12px" }}>
-                      {ev.approved
-                        ? <CheckCircle2 size={18} strokeWidth={2} color="#16A34A" />
-                        : <XCircle     size={18} strokeWidth={2} color="#DC2626" />
-                      }
-                    </td>
-                  </tr>
-                );
-              })}
+                      {/* Approved */}
+                      <td style={{ padding: "18px 20px 18px 12px" }}>
+                        {ev.is_approved
+                          ? <CheckCircle2 size={18} strokeWidth={2} color="#16A34A" />
+                          : <XCircle     size={18} strokeWidth={2} color="#DC2626" />
+                        }
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Table footer / pagination */}
-        <div
-          className="flex items-center justify-between px-5 py-3"
-          style={{ borderTop: "1px solid #F8FAFC" }}
-        >
-          <span style={{ fontSize: 13, color: "#94A3B8" }}>
-            Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, totalItems)} of {totalItems} events
-          </span>
+        {!eventsLoading && totalItems > 0 && (
+          <div
+            className="flex items-center justify-between px-5 py-3"
+            style={{ borderTop: "1px solid #F8FAFC" }}
+          >
+            <span style={{ fontSize: 13, color: "#94A3B8" }}>
+              Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, totalItems)} of {totalItems} events
+            </span>
 
-          <div className="flex items-center gap-1">
-            <button
-              disabled={page === 1}
-              className="flex items-center gap-1 font-medium transition-colors"
-              style={{ fontSize: 13, color: page === 1 ? "#CBD5E1" : "#64748B", padding: "5px 10px", borderRadius: 8, border: "1px solid #E2E8F0", backgroundColor: "transparent", cursor: page === 1 ? "not-allowed" : "pointer" }}
-              onMouseEnter={e => { if (page !== 1) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
-              onClick={() => handlePageChange(page - 1)}
-            >
-              <ChevronLeft size={13} strokeWidth={2} /> Prev
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                disabled={page === 1}
+                className="flex items-center gap-1 font-medium transition-colors"
+                style={{ fontSize: 13, color: page === 1 ? "#CBD5E1" : "#64748B", padding: "5px 10px", borderRadius: 8, border: "1px solid #E2E8F0", backgroundColor: "transparent", cursor: page === 1 ? "not-allowed" : "pointer" }}
+                onMouseEnter={e => { if (page !== 1) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
+                onClick={() => handlePageChange(page - 1)}
+              >
+                <ChevronLeft size={13} strokeWidth={2} /> Prev
+              </button>
 
-            {getPages().map((p, idx) => (
-              p === "..." ? (
-                <span key={`dots-${idx}`} style={{ fontSize: 13, color: "#CBD5E1", padding: "0 4px" }}>…</span>
-              ) : (
-                <button
-                  key={p}
-                  onClick={() => handlePageChange(p as number)}
-                  style={{
-                    width: 30, height: 30, borderRadius: 8, fontSize: 13, cursor: "pointer",
-                    border: p === page ? "1px solid #1A1A2E" : "1px solid #E2E8F0",
-                    backgroundColor: p === page ? "#1A1A2E" : "transparent",
-                    color: p === page ? "#ffffff" : "#64748B",
-                    fontWeight: p === page ? 600 : 400,
-                    transition: "all 150ms ease",
-                  }}
-                  onMouseEnter={e => { if (p !== page) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
-                  onMouseLeave={e => { if (p !== page) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
-                >
-                  {p}
-                </button>
-              )
-            ))}
+              {getPages().map((p, idx) => (
+                p === "..." ? (
+                  <span key={`dots-${idx}`} style={{ fontSize: 13, color: "#CBD5E1", padding: "0 4px" }}>…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => handlePageChange(p as number)}
+                    style={{
+                      width: 30, height: 30, borderRadius: 8, fontSize: 13, cursor: "pointer",
+                      border: p === page ? "1px solid #1A1A2E" : "1px solid #E2E8F0",
+                      backgroundColor: p === page ? "#1A1A2E" : "transparent",
+                      color: p === page ? "#ffffff" : "#64748B",
+                      fontWeight: p === page ? 600 : 400,
+                      transition: "all 150ms ease",
+                    }}
+                    onMouseEnter={e => { if (p !== page) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
+                    onMouseLeave={e => { if (p !== page) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
+                  >
+                    {p}
+                  </button>
+                )
+              ))}
 
-            <button
-              disabled={page === totalPages}
-              className="flex items-center gap-1 font-medium transition-colors"
-              style={{ fontSize: 13, color: page === totalPages ? "#CBD5E1" : "#64748B", padding: "5px 10px", borderRadius: 8, border: "1px solid #E2E8F0", backgroundColor: "transparent", cursor: page === totalPages ? "not-allowed" : "pointer" }}
-              onMouseEnter={e => { if (page !== totalPages) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
-              onClick={() => handlePageChange(page + 1)}
-            >
-              Next <ChevronRight size={13} strokeWidth={2} />
-            </button>
+              <button
+                disabled={page === totalPages}
+                className="flex items-center gap-1 font-medium transition-colors"
+                style={{ fontSize: 13, color: page === totalPages ? "#CBD5E1" : "#64748B", padding: "5px 10px", borderRadius: 8, border: "1px solid #E2E8F0", backgroundColor: "transparent", cursor: page === totalPages ? "not-allowed" : "pointer" }}
+                onMouseEnter={e => { if (page !== totalPages) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
+                onClick={() => handlePageChange(page + 1)}
+              >
+                Next <ChevronRight size={13} strokeWidth={2} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Plus, Search, ChevronDown, Monitor,
   CheckCircle2, XCircle, MoreHorizontal,
@@ -8,6 +8,9 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { useToast } from "@/components/ui/use-toast";
+import { useHeartbeats } from "@/hooks/useDashboard";
+import type { HeartbeatEvent } from "@/data/mockData";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -32,43 +35,81 @@ interface Device {
   status: DeviceStatus;
 }
 
-// ─── 20 device rows ────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-const devices: Device[] = [
-  { id:"1",  name:"MacBook Pro 16\"",   hostname:"macbook-yash.local",      userInitials:"YM", userName:"Yash M",    userDept:"Engineering", os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"2 min ago",   lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"2",  name:"Dell XPS 15",        hostname:"dell-sarah.corp",           userInitials:"SK", userName:"Sarah K",   userDept:"Design",       os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"5 min ago",   lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"3",  name:"MacBook Air M2",     hostname:"macbook-arjun.local",      userInitials:"AR", userName:"Arjun R",   userDept:"Product",      os:"macos",   osVersion:"macOS 14.1",  browserAgent:true,  desktopAgent:true,  lastSeen:"12 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"4",  name:"Surface Laptop 5",   hostname:"surface-priya.corp",        userInitials:"PM", userName:"Priya M",   userDept:"Marketing",    os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:false, lastSeen:"1 hr ago",    lastSeenStatus:"recent",  version:"v1.2.1", status:"outdated" },
-  { id:"5",  name:"MacBook Pro 14\"",   hostname:"macbook-rahul.local",      userInitials:"RT", userName:"Rahul T",   userDept:"Engineering",  os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"20 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"6",  name:"Lenovo ThinkPad",    hostname:"thinkpad-neha.corp",        userInitials:"NA", userName:"Neha A",    userDept:"Operations",   os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"45 min ago",  lastSeenStatus:"recent",  version:"v1.2.3", status:"healthy"  },
-  { id:"7",  name:"iMac 27\"",          hostname:"imac-vikram.local",         userInitials:"VK", userName:"Vikram K",  userDept:"Design",       os:"macos",   osVersion:"macOS 13.6",  browserAgent:true,  desktopAgent:true,  lastSeen:"3 hr ago",    lastSeenStatus:"recent",  version:"v1.2.1", status:"outdated" },
-  { id:"8",  name:"HP EliteBook 840",   hostname:"hp-amit.corp",              userInitials:"AS", userName:"Amit S",    userDept:"Product",      os:"windows", osVersion:"Windows 10",  browserAgent:false, desktopAgent:true,  lastSeen:"2 days ago",  lastSeenStatus:"offline", version:"v1.1.0", status:"offline"  },
-  { id:"9",  name:"MacBook Pro 16\"",   hostname:"macbook-deepa.local",      userInitials:"DP", userName:"Deepa P",   userDept:"Engineering",  os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"8 min ago",   lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"10", name:"Dell Inspiron 15",   hostname:"dell-rohit.corp",           userInitials:"RJ", userName:"Rohit J",   userDept:"Marketing",    os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"30 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"11", name:"MacBook Air M1",     hostname:"macbook-ananya.local",     userInitials:"AG", userName:"Ananya G",  userDept:"Design",       os:"macos",   osVersion:"macOS 14.0",  browserAgent:true,  desktopAgent:false, lastSeen:"2 hr ago",    lastSeenStatus:"recent",  version:"v1.2.1", status:"outdated" },
-  { id:"12", name:"Surface Pro 9",      hostname:"surface-karan.corp",        userInitials:"KM", userName:"Karan M",   userDept:"Operations",   os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"15 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"13", name:"Mac Studio",         hostname:"macstudio-lead.local",     userInitials:"SB", userName:"Sanjay B",  userDept:"Engineering",  os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"4 min ago",   lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"14", name:"HP Spectre 360",     hostname:"hp-pooja.corp",             userInitials:"PC", userName:"Pooja C",   userDept:"Marketing",    os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"55 min ago",  lastSeenStatus:"recent",  version:"v1.2.3", status:"healthy"  },
-  { id:"15", name:"MacBook Pro 13\"",   hostname:"macbook-ishaan.local",     userInitials:"IV", userName:"Ishaan V",  userDept:"Product",      os:"macos",   osVersion:"macOS 14.1",  browserAgent:true,  desktopAgent:true,  lastSeen:"18 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"16", name:"Lenovo IdeaPad",     hostname:"lenovo-meera.corp",         userInitials:"MR", userName:"Meera R",   userDept:"Operations",   os:"windows", osVersion:"Windows 10",  browserAgent:false, desktopAgent:false, lastSeen:"3 days ago",  lastSeenStatus:"offline", version:"v1.1.0", status:"offline"  },
-  { id:"17", name:"MacBook Air M2",     hostname:"macbook-tarun.local",      userInitials:"TN", userName:"Tarun N",   userDept:"Engineering",  os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"10 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"18", name:"ASUS ZenBook",       hostname:"asus-kavita.corp",          userInitials:"KS", userName:"Kavita S",  userDept:"Design",       os:"windows", osVersion:"Windows 11",  browserAgent:true,  desktopAgent:true,  lastSeen:"22 min ago",  lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"19", name:"Mac Mini M2",        hostname:"macmini-ops.local",        userInitials:"OT", userName:"Ops Team",  userDept:"Operations",   os:"macos",   osVersion:"macOS 14.2",  browserAgent:true,  desktopAgent:true,  lastSeen:"6 min ago",   lastSeenStatus:"online",  version:"v1.2.3", status:"healthy"  },
-  { id:"20", name:"Dell Latitude 14",   hostname:"dell-sales.corp",           userInitials:"SL", userName:"Sales Lead",userDept:"Marketing",    os:"windows", osVersion:"Windows 11",  browserAgent:false, desktopAgent:false, lastSeen:"5 days ago",  lastSeenStatus:"offline", version:"v1.1.0", status:"offline"  },
-];
-
-const allDevices: Device[] = [...devices];
-for (let i = 21; i <= 24; i++) {
-  const seed = devices[(i - 1) % devices.length];
-  allDevices.push({
-    ...seed,
-    id: i.toString(),
-    name: `${seed.name} (Clone)`,
-    hostname: `clone-${seed.hostname}`,
-  });
+function formatRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diffMs = now - then;
+  if (diffMs < 0) return "Just now";
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+function computeLastSeenStatus(timestamp: string): LastSeenStatus {
+  const diffMs = Date.now() - new Date(timestamp).getTime();
+  if (diffMs < 10 * 60_000) return "online";
+  if (diffMs < 60 * 60_000) return "recent";
+  return "offline";
+}
+
+function deriveOS(osVersion: string): OS {
+  if (osVersion.toLowerCase().includes("mac")) return "macos";
+  return "windows";
+}
+
+function deriveDeviceName(osVersion: string, deviceId: string): string {
+  const os = osVersion.toLowerCase();
+  if (os.includes("macos") || os.includes("mac os")) return "macOS Device";
+  if (os.includes("windows")) return "Windows Device";
+  return deviceId.substring(0, 12);
+}
+
+function mapHeartbeatToDevice(hb: HeartbeatEvent, latestVersion: string): Device {
+  const lastSeenStatus = computeLastSeenStatus(hb.timestamp);
+  const os = deriveOS(hb.os_version);
+  let status: DeviceStatus = "healthy";
+  if (lastSeenStatus === "offline") status = "offline";
+  else if (hb.agent_version !== latestVersion) status = "outdated";
+
+  return {
+    id: hb.device_id,
+    name: deriveDeviceName(hb.os_version, hb.device_id),
+    hostname: hb.device_id.length > 20 ? hb.device_id.substring(0, 20) + "…" : hb.device_id,
+    userInitials: hb.device_id.substring(0, 2).toUpperCase(),
+    userName: "Device " + hb.device_id.substring(0, 4),
+    userDept: "Unknown",
+    os,
+    osVersion: hb.os_version,
+    browserAgent: true,
+    desktopAgent: true,
+    lastSeen: formatRelativeTime(hb.timestamp),
+    lastSeenStatus,
+    version: hb.agent_version,
+    status,
+  };
+}
+
+function findLatestVersion(heartbeats: HeartbeatEvent[]): string {
+  if (heartbeats.length === 0) return "";
+  const versions = heartbeats.map(h => h.agent_version);
+  // Sort versions semantically, pick the highest
+  const sorted = [...new Set(versions)].sort((a, b) => {
+    const pa = a.replace(/^v/, "").split(".").map(Number);
+    const pb = b.replace(/^v/, "").split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const diff = (pb[i] || 0) - (pa[i] || 0);
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  });
+  return sorted[0] || "";
+}
 
 function rowShadow(s: DeviceStatus): string {
   if (s === "offline")  return "inset 3px 0 0 #DC2626";
@@ -123,12 +164,33 @@ export function DevicesTab() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [isFading, setIsFading] = useState(false);
-  const [devicesList, setDevicesList] = useState<Device[]>(allDevices);
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
+  const { data: heartbeats, isLoading, error } = useHeartbeats();
+
+  const latestVersion = useMemo(
+    () => findLatestVersion(heartbeats ?? []),
+    [heartbeats]
+  );
+
+  const allDevices: Device[] = useMemo(() => {
+    if (!heartbeats) return [];
+    return heartbeats
+      .filter(hb => !removedIds.has(hb.device_id))
+      .map(hb => {
+        const device = mapHeartbeatToDevice(hb, latestVersion);
+        if (syncedIds.has(hb.device_id)) {
+          return { ...device, lastSeen: "Just now", lastSeenStatus: "online" as LastSeenStatus, status: "healthy" as DeviceStatus };
+        }
+        return device;
+      });
+  }, [heartbeats, latestVersion, removedIds, syncedIds]);
+
   const ITEMS_PER_PAGE = 10;
-  const totalItems = devicesList.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalItems = allDevices.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
 
   const handlePageChange = (p: number) => {
     if (p === page || p < 1 || p > totalPages) return;
@@ -140,9 +202,7 @@ export function DevicesTab() {
   };
 
   const handleForceSync = (id: string, name: string) => {
-    setDevicesList(prev => prev.map(d => 
-      d.id === id ? { ...d, lastSeen: "Just now", lastSeenStatus: "online", status: "healthy" } : d
-    ));
+    setSyncedIds(prev => new Set(prev).add(id));
     toast({
       title: "Sync Command Sent",
       description: `Requested state refresh from ${name}.`,
@@ -151,7 +211,7 @@ export function DevicesTab() {
   };
 
   const handleRemoveAgent = (id: string, name: string) => {
-    setDevicesList(prev => prev.filter(d => d.id !== id));
+    setRemovedIds(prev => new Set(prev).add(id));
     toast({
       title: "Agent Removed",
       description: `Successfully unlinked ${name} from governance.`,
@@ -159,7 +219,7 @@ export function DevicesTab() {
     });
   };
 
-  const paginatedDevices = devicesList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const paginatedDevices = allDevices.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   const getPages = () => {
     if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
@@ -168,18 +228,150 @@ export function DevicesTab() {
     return [1, "...", page - 1, page, page + 1, "...", totalPages];
   };
 
-  const coverageData = [
-    { name: "Active",   value: 21, color: "#FF5C1A" },
-    { name: "Inactive", value: 3,  color: "#E2E8F0" },
-  ];
+  // Computed stats
+  const agentsActive = allDevices.filter(d => d.lastSeenStatus === "online" || d.lastSeenStatus === "recent").length;
+  const needsAttention = allDevices.filter(d => d.status === "offline" || d.status === "outdated").length;
 
-  const versionData = [
-    { version: "v1.2.3 (latest)", count: 18, pct: 75, color: "#16A34A" },
-    { version: "v1.2.1",          count: 4,  pct: 17, color: "#D97706" },
-    { version: "v1.1.0",          count: 2,  pct: 8,  color: "#DC2626" },
+  // Coverage donut
+  const activeCount = allDevices.filter(d => d.lastSeenStatus !== "offline").length;
+  const inactiveCount = allDevices.length - activeCount;
+  const coverageData = [
+    { name: "Active",   value: activeCount || 0,   color: "#FF5C1A" },
+    { name: "Inactive", value: inactiveCount || 0,  color: "#E2E8F0" },
   ];
+  const coveragePct = totalItems > 0 ? ((activeCount / totalItems) * 100).toFixed(1) : "0";
+
+  // OS breakdown
+  const macCount = allDevices.filter(d => d.os === "macos").length;
+  const winCount = allDevices.filter(d => d.os === "windows").length;
+
+  // Version distribution
+  const versionMap = useMemo(() => {
+    const map = new Map<string, number>();
+    allDevices.forEach(d => {
+      map.set(d.version, (map.get(d.version) || 0) + 1);
+    });
+    // Sort: latest first, then by count descending
+    const entries = [...map.entries()].sort((a, b) => {
+      if (a[0] === latestVersion) return -1;
+      if (b[0] === latestVersion) return 1;
+      return b[1] - a[1];
+    });
+    return entries.map(([version, count]) => {
+      const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+      let color = "#D97706"; // default non-latest
+      if (version === latestVersion) color = "#16A34A";
+      else {
+        // older versions get red if very old
+        const vParts = version.replace(/^v/, "").split(".").map(Number);
+        const lParts = latestVersion.replace(/^v/, "").split(".").map(Number);
+        const majorDiff = (lParts[0] || 0) - (vParts[0] || 0);
+        const minorDiff = (lParts[1] || 0) - (vParts[1] || 0);
+        if (majorDiff > 0 || minorDiff > 1) color = "#DC2626";
+      }
+      return {
+        version: version === latestVersion ? `${version} (latest)` : version,
+        count,
+        pct,
+        color,
+      };
+    });
+  }, [allDevices, latestVersion, totalItems]);
 
   const cols = ["DEVICE", "USER", "OS", "AGENT STATUS", "LAST SEEN", "VERSION", "ACTIONS"];
+
+  // ─── Loading skeleton ──────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Devices</h1>
+            <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 3 }}>Monitor agent status across all managed devices</p>
+          </div>
+          <Skeleton className="h-9 w-32 rounded-xl" />
+        </div>
+        <div className="flex gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="flex-1" style={{ borderRadius: 16, padding: 20, border: "1px solid #F0F2F5" }}>
+              <Skeleton className="h-3 w-24 mb-3" />
+              <Skeleton className="h-9 w-16 mb-2" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+          ))}
+        </div>
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div className="px-6 py-4" style={{ borderBottom: "1px solid #F8FAFC" }}>
+            <Skeleton className="h-5 w-28" />
+          </div>
+          <div className="px-6 py-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 py-3">
+                <Skeleton className="h-8 w-8 rounded-xl" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-8" />
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // ─── Error state ───────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Devices</h1>
+            <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 3 }}>Monitor agent status across all managed devices</p>
+          </div>
+        </div>
+        <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 16, padding: "16px 20px" }}>
+          <p style={{ fontSize: 14, color: "#DC2626", fontWeight: 500 }}>
+            Failed to load devices: {error.message}
+          </p>
+          <p style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>
+            Data will retry automatically. Check your connection if this persists.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Empty state ───────────────────────────────────────────────────────
+  if (allDevices.length === 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Devices</h1>
+            <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 3 }}>Monitor agent status across all managed devices</p>
+          </div>
+          <button
+            className="flex items-center gap-2 font-semibold"
+            style={{ backgroundColor: "#FF5C1A", color: "#ffffff", border: "none", borderRadius: 12, padding: "9px 18px", fontSize: 14, cursor: "pointer", fontFamily: "Inter, sans-serif", transition: "background-color 200ms ease" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#E5521A"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#FF5C1A"; }}
+          >
+            <Plus size={15} strokeWidth={2.5} /> Deploy Agent
+          </button>
+        </div>
+        <Card>
+          <div className="flex flex-col items-center justify-center py-16">
+            <Monitor size={40} strokeWidth={1.5} color="#CBD5E1" />
+            <p className="mt-4 font-medium" style={{ fontSize: 16, color: "#94A3B8" }}>No devices registered yet</p>
+            <p style={{ fontSize: 13, color: "#CBD5E1", marginTop: 4 }}>Deploy the agent to start monitoring devices</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -208,8 +400,8 @@ export function DevicesTab() {
           onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform = "translateY(0)"; el.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; }}
         >
           <p className="font-semibold tracking-widest uppercase" style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", letterSpacing: "0.08em" }}>Total Devices</p>
-          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#ffffff", lineHeight: 1 }}>24</p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.80)", marginTop: 6 }}>↑ 2 added this week</p>
+          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#ffffff", lineHeight: 1 }}>{totalItems}</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.80)", marginTop: 6 }}>Managed endpoints</p>
         </div>
 
         {/* Card 2 white */}
@@ -218,7 +410,7 @@ export function DevicesTab() {
           onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform = "translateY(0)"; el.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; }}
         >
           <p className="font-semibold tracking-widest uppercase" style={{ fontSize: 10, color: "#94A3B8", letterSpacing: "0.08em" }}>Agents Active</p>
-          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#1A1A2E", lineHeight: 1 }}>21</p>
+          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#1A1A2E", lineHeight: 1 }}>{agentsActive}</p>
           <div className="flex items-center gap-1.5 mt-2">
             <span className="rounded-full" style={{ width: 7, height: 7, backgroundColor: "#16A34A", display: "inline-block", flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: "#64748B" }}>Browser + Desktop running</span>
@@ -231,7 +423,7 @@ export function DevicesTab() {
           onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform = "translateY(0)"; el.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; }}
         >
           <p className="font-semibold tracking-widest uppercase" style={{ fontSize: 10, color: "#94A3B8", letterSpacing: "0.08em" }}>Needs Attention</p>
-          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#1A1A2E", lineHeight: 1 }}>3</p>
+          <p className="font-bold mt-2" style={{ fontSize: 36, color: "#1A1A2E", lineHeight: 1 }}>{needsAttention}</p>
           <div className="flex items-center gap-1.5 mt-2">
             <span className="rounded-full" style={{ width: 7, height: 7, backgroundColor: "#DC2626", display: "inline-block", flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: "#DC2626" }}>Offline or outdated</span>
@@ -426,7 +618,7 @@ export function DevicesTab() {
           style={{ borderTop: "1px solid #F8FAFC" }}
         >
           <span style={{ fontSize: 13, color: "#94A3B8" }}>
-            Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, totalItems)} of {totalItems} devices
+            Showing {totalItems > 0 ? (page - 1) * ITEMS_PER_PAGE + 1 : 0}-{Math.min(page * ITEMS_PER_PAGE, totalItems)} of {totalItems} devices
           </span>
 
           <div className="flex items-center gap-1">
@@ -496,18 +688,18 @@ export function DevicesTab() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", lineHeight: 1.1 }}>87.5%</span>
+                <span className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", lineHeight: 1.1 }}>{coveragePct}%</span>
                 <span style={{ fontSize: 11, color: "#94A3B8" }}>coverage</span>
               </div>
             </div>
             <div className="flex items-center gap-4 mt-2">
               <div className="flex items-center gap-1.5">
                 <span className="rounded-full" style={{ width: 8, height: 8, backgroundColor: "#FF5C1A", display: "inline-block" }} />
-                <span style={{ fontSize: 12, color: "#64748B" }}>macOS: 14</span>
+                <span style={{ fontSize: 12, color: "#64748B" }}>macOS: {macCount}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="rounded-full" style={{ width: 8, height: 8, backgroundColor: "#E2E8F0", display: "inline-block", border: "1px solid #CBD5E1" }} />
-                <span style={{ fontSize: 12, color: "#64748B" }}>Windows: 10</span>
+                <span style={{ fontSize: 12, color: "#64748B" }}>Windows: {winCount}</span>
               </div>
             </div>
           </div>
@@ -518,14 +710,14 @@ export function DevicesTab() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="font-semibold" style={{ fontSize: 15, color: "#1A1A2E" }}>Agent Version Distribution</p>
-              <p style={{ fontSize: 13, color: "#94A3B8", marginTop: 2 }}>Across all 24 managed devices</p>
+              <p style={{ fontSize: 13, color: "#94A3B8", marginTop: 2 }}>Across all {totalItems} managed devices</p>
             </div>
             <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#FF5C1A", fontWeight: 600, fontFamily: "Inter, sans-serif" }}>
               Update all outdated →
             </button>
           </div>
           <div className="flex flex-col gap-4">
-            {versionData.map(v => (
+            {versionMap.length > 0 ? versionMap.map(v => (
               <div key={v.version}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: "#1A1A2E" }}>{v.version}</span>
@@ -535,7 +727,9 @@ export function DevicesTab() {
                   <div className="rounded-full" style={{ height: 8, width: `${v.pct}%`, backgroundColor: v.color, transition: "width 600ms ease" }} />
                 </div>
               </div>
-            ))}
+            )) : (
+              <p style={{ fontSize: 13, color: "#94A3B8" }}>No version data available</p>
+            )}
           </div>
         </Card>
       </div>

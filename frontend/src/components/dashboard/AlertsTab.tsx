@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   AlertTriangle, Info, CheckCircle2,
   ChevronDown, Bell, ShieldAlert, Pencil, Plus,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { useAlerts } from "@/hooks/useDashboard";
+import { resolveAlert, dismissAlert, type AlertItem } from "@/services/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -22,22 +26,52 @@ interface Alert {
   resolvedBy?: string;
 }
 
-// ─── Alert data ────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
-const alertsData: Alert[] = [
-  { id:"1",  severity:"critical", unread:true,  title:"Sensitive data pattern detected",      desc:"Large paste event detected before OpenAI API call",         user:"yashm",    tool:"OpenAI API",   dept:"Engineering", time:"2 min ago"  },
-  { id:"2",  severity:"critical", unread:true,  title:"Unapproved tool in Finance department", desc:"Replicate.com accessed by finance team member",              user:"ramesh.k", tool:"Replicate",    dept:"Finance",     time:"8 min ago"  },
-  { id:"3",  severity:"high",     unread:true,  title:"High-risk tool usage spike",            desc:"Midjourney accessed 12 times in 1 hour",                    user:"sarah.k",  tool:"Midjourney",   dept:"Design",      time:"24 min ago" },
-  { id:"4",  severity:"high",     unread:true,  title:"New shadow AI tool detected",           desc:"Character.ai not on approved list — first detection",        user:"priya.m",  tool:"Character.ai", dept:"Marketing",   time:"1 hr ago"   },
-  { id:"5",  severity:"high",     unread:false, title:"API key exposure signal",               desc:"OpenAI API called from personal Python script",              user:"arjun.r",  tool:"OpenAI API",   dept:"Engineering", time:"2 hr ago"   },
-  { id:"6",  severity:"medium",   unread:true,  title:"After-hours AI usage detected",         desc:"Multiple AI tools used at 2:30 AM",                          user:"yashm",    tool:"ChatGPT",      dept:"Engineering", time:"6 hr ago"   },
-  { id:"7",  severity:"medium",   unread:false, title:"Policy check: multiple tool switches",  desc:"5 different AI tools used in a single session",              user:"karan.m",  tool:"Perplexity",   dept:"Operations",  time:"8 hr ago"   },
-  { id:"8",  severity:"medium",   unread:false, title:"Unusual download volume detected",      desc:"Large file pulled via GitHub Copilot suggestion",            user:"deepa.p",  tool:"GitHub Copilot",dept:"Engineering", time:"10 hr ago"  },
-  { id:"9",  severity:"medium",   unread:false, title:"First-time tool access flagged",        desc:"Runway used for the first time by this user",                user:"ananya.g", tool:"Runway",       dept:"Design",      time:"12 hr ago"  },
-  { id:"10", severity:"medium",   unread:false, title:"Elevated session duration",             desc:"Claude session active for 4+ continuous hours",              user:"rohit.j",  tool:"Claude",       dept:"Marketing",   time:"Yesterday"  },
-  { id:"11", severity:"resolved", unread:false, title:"Unrecognized browser extension blocked",desc:"Extension removed and flagged successfully",                 user:"meera.r",  tool:"Browser",      dept:"Operations",  time:"2 days ago", resolvedBy:"Admin" },
-  { id:"12", severity:"resolved", unread:false, title:"VPN policy compliance check passed",   desc:"All devices now compliant after policy push",                user:"System",   tool:"—",            dept:"All",         time:"3 days ago", resolvedBy:"System" },
-];
+function formatRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diffMs = now - then;
+  if (diffMs < 0) return "Just now";
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "Yesterday";
+  return `${days} days ago`;
+}
+
+function mapAlertSeverity(item: AlertItem): Severity {
+  if (item.type === "high_risk" || item.type === "tamper") return "critical";
+  if (item.type === "unapproved" || item.type === "high_frequency") return "high";
+  return "medium";
+}
+
+function extractToolFromAlert(item: AlertItem): string {
+  // Try to extract a tool name from title or description
+  const toolPatterns = /\b(ChatGPT|OpenAI|Midjourney|Claude|Perplexity|Copilot|Replicate|Runway|Cursor|Gemini|Character\.ai|Grammarly|Notion|Jasper)\b/i;
+  const titleMatch = item.title.match(toolPatterns);
+  if (titleMatch) return titleMatch[1];
+  const descMatch = item.description.match(toolPatterns);
+  if (descMatch) return descMatch[1];
+  return "\u2014";
+}
+
+function mapAlertItemToAlert(item: AlertItem): Alert {
+  return {
+    id: item.id,
+    severity: mapAlertSeverity(item),
+    unread: true,
+    title: item.title,
+    desc: item.description,
+    user: "\u2014",
+    tool: extractToolFromAlert(item),
+    dept: "\u2014",
+    time: formatRelativeTime(item.timestamp),
+  };
+}
 
 // ─── Severity config ───────────────────────────────────────────────────────
 
@@ -96,7 +130,7 @@ function FilterSelect({ label }: { label: string }) {
 
 // ─── Single Alert Row ──────────────────────────────────────────────────────
 
-function AlertRow({ alert, onResolve }: { alert: Alert; onResolve: (id: string) => void }) {
+function AlertRow({ alert, onResolve, isResolving }: { alert: Alert; onResolve: (id: string) => void; isResolving?: boolean }) {
   const cf = sevConf[alert.severity];
   const Icon = alertIcon(alert.severity);
   const isResolved = alert.severity === "resolved";
@@ -170,9 +204,10 @@ function AlertRow({ alert, onResolve }: { alert: Alert; onResolve: (id: string) 
             <button className="font-semibold" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#FF5C1A", fontFamily: "Inter, sans-serif", padding: 0 }}>
               View Details
             </button>
-            <button className="font-medium" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#94A3B8", fontFamily: "Inter, sans-serif", padding: 0 }}
-              onClick={() => onResolve(alert.id)}>
-              Resolve
+            <button className="font-medium" style={{ background: "none", border: "none", cursor: isResolving ? "wait" : "pointer", fontSize: 13, color: "#94A3B8", fontFamily: "Inter, sans-serif", padding: 0, opacity: isResolving ? 0.5 : 1 }}
+              onClick={() => onResolve(alert.id)}
+              disabled={isResolving}>
+              {isResolving ? "Resolving..." : "Resolve"}
             </button>
           </div>
         )}
@@ -185,27 +220,122 @@ function AlertRow({ alert, onResolve }: { alert: Alert; onResolve: (id: string) 
 
 export function AlertsTab() {
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [alerts, setAlerts] = useState<Alert[]>(alertsData);
+  const [localResolved, setLocalResolved] = useState<Map<string, string>>(new Map());
   const [rules, setRules] = useState([true, true, false]);
   const [hoverRule, setHoverRule] = useState<number | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: alertItems, isLoading, error } = useAlerts();
+
+  const resolveMutation = useMutation({
+    mutationFn: resolveAlert,
+    onSuccess: (_data, alertId) => {
+      setLocalResolved(prev => new Map(prev).set(alertId, "Admin"));
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      toast({
+        title: "Alert Resolved",
+        description: "Policy violation marked as cleared successfully.",
+        duration: 3000,
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to resolve alert",
+        description: err.message,
+        duration: 4000,
+      });
+    },
+  });
+
+  const alerts: Alert[] = useMemo(() => {
+    if (!alertItems) return [];
+    return alertItems.map(item => {
+      const alert = mapAlertItemToAlert(item);
+      if (localResolved.has(item.id)) {
+        return { ...alert, severity: "resolved" as Severity, unread: false, resolvedBy: localResolved.get(item.id) };
+      }
+      return alert;
+    });
+  }, [alertItems, localResolved]);
 
   const displayed = unreadOnly ? alerts.filter(a => a.unread) : alerts;
 
   const handleResolve = (id: string) => {
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, severity: "resolved" as Severity, unread: false, resolvedBy: "Admin" } : a));
-    toast({
-      title: "Alert Resolved",
-      description: "Policy violation marked as cleared successfully.",
-      duration: 3000,
-    });
+    resolveMutation.mutate(id);
   };
+
+  // Computed stats
+  const criticalCount = alerts.filter(a => a.severity === "critical").length;
+  const highCount = alerts.filter(a => a.severity === "high").length;
+  const mediumCount = alerts.filter(a => a.severity === "medium").length;
+  const resolvedCount = alerts.filter(a => a.severity === "resolved").length;
 
   const ruleConf = [
     { Icon: ShieldAlert, color: "#FF5C1A", label: "Finance dept uses unapproved tool", action: "Block + Alert", actionColor: "#DC2626", actionBg: "rgba(220,38,38,0.08)", actionBorder: "rgba(220,38,38,0.2)" },
     { Icon: AlertTriangle, color: "#DC2626", label: "HIGH risk tool detected",          action: "Alert only",   actionColor: "#D97706", actionBg: "rgba(217,119,6,0.08)",  actionBorder: "rgba(217,119,6,0.2)"  },
     { Icon: Bell,          color: "#D97706", label: "After-hours usage",                action: "Log only",     actionColor: "#64748B", actionBg: "#F8FAFC",               actionBorder: "#E2E8F0"              },
   ];
+
+  // ─── Loading skeleton ──────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Alerts</h1>
+            <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 3 }}>Policy violations and high-risk activity notifications</p>
+          </div>
+        </div>
+        <div className="flex gap-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="flex-1" style={{ borderRadius: 16, padding: 20, border: "1px solid #F0F2F5" }}>
+              <Skeleton className="h-3 w-20 mb-3" />
+              <Skeleton className="h-9 w-12 mb-2" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          ))}
+        </div>
+        <div style={{ backgroundColor: "#ffffff", border: "1px solid #F0F2F5", borderRadius: 16, overflow: "hidden" }}>
+          <div className="px-5 py-4" style={{ borderBottom: "1px solid #F8FAFC" }}>
+            <Skeleton className="h-5 w-32" />
+          </div>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-start gap-4 px-5 py-4" style={{ borderBottom: "1px solid #F8FAFC" }}>
+              <Skeleton className="h-9 w-9 rounded-xl flex-shrink-0" />
+              <div className="flex-1">
+                <Skeleton className="h-4 w-48 mb-2" />
+                <Skeleton className="h-3 w-64 mb-2" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Error state ───────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-bold" style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}>Alerts</h1>
+            <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 3 }}>Policy violations and high-risk activity notifications</p>
+          </div>
+        </div>
+        <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 16, padding: "16px 20px" }}>
+          <p style={{ fontSize: 14, color: "#DC2626", fontWeight: 500 }}>
+            Failed to load alerts: {error.message}
+          </p>
+          <p style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>
+            Data will retry automatically. Check your connection if this persists.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -231,12 +361,11 @@ export function AlertsTab() {
 
       {/* ── Stats Row ───────────────────────────────────────────── */}
       <div className="flex gap-4">
-        {/* Critical — orange */}
         {[
-          { label: "Critical",       value: "2",  sub: "Immediate action",       orange: true,  dotColor: "", subColor: "rgba(255,255,255,0.80)" },
-          { label: "High",           value: "5",  sub: "Needs review",           orange: false, dotColor: "#DC2626", subColor: "#DC2626" },
-          { label: "Medium",         value: "11", sub: "Monitor closely",        orange: false, dotColor: "#D97706", subColor: "#D97706" },
-          { label: "Resolved Today", value: "8",  sub: "Closed successfully",    orange: false, dotColor: "#16A34A", subColor: "#16A34A" },
+          { label: "Critical",       value: String(criticalCount),  sub: "Immediate action",       orange: true,  dotColor: "", subColor: "rgba(255,255,255,0.80)" },
+          { label: "High",           value: String(highCount),      sub: "Needs review",           orange: false, dotColor: "#DC2626", subColor: "#DC2626" },
+          { label: "Medium",         value: String(mediumCount),    sub: "Monitor closely",        orange: false, dotColor: "#D97706", subColor: "#D97706" },
+          { label: "Resolved",       value: String(resolvedCount),  sub: "Closed successfully",    orange: false, dotColor: "#16A34A", subColor: "#16A34A" },
         ].map(card => (
           <div key={card.label} className="flex-1"
             style={{ backgroundColor: card.orange ? "#FF5C1A" : "#ffffff", border: `1px solid ${card.orange ? "#FDDCC8" : "#F0F2F5"}`, borderRadius: 16, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", transition: "transform 200ms, box-shadow 200ms", cursor: "default" }}
@@ -282,17 +411,20 @@ export function AlertsTab() {
 
         {/* Alert rows */}
         {displayed.length > 0 ? (
-          displayed.map((alert, idx) => (
+          displayed.map((alert) => (
             <AlertRow
               key={alert.id}
-              alert={{ ...alert, ...(idx === displayed.length - 1 ? {} : {}) }}
+              alert={alert}
               onResolve={handleResolve}
+              isResolving={resolveMutation.isPending && resolveMutation.variables === alert.id}
             />
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-12">
             <CheckCircle2 size={32} strokeWidth={1.5} color="#CBD5E1" />
-            <p className="mt-3 font-medium" style={{ fontSize: 14, color: "#94A3B8" }}>No unread alerts</p>
+            <p className="mt-3 font-medium" style={{ fontSize: 14, color: "#94A3B8" }}>
+              {unreadOnly ? "No unread alerts" : "No active alerts"}
+            </p>
           </div>
         )}
       </div>

@@ -1,4 +1,44 @@
 import { Activity, Layers, AlertTriangle, ShieldOff, ArrowUpRight } from "lucide-react";
+import { useStats } from "@/hooks/useDashboard";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// ─── Error badge ──────────────────────────────────────────────────────────────
+
+function ErrorBadge() {
+  return (
+    <span
+      className="absolute top-2 left-2 flex items-center justify-center rounded-full font-bold"
+      style={{
+        width: 18,
+        height: 18,
+        backgroundColor: "#DC2626",
+        color: "#ffffff",
+        fontSize: 11,
+        lineHeight: 1,
+        zIndex: 2,
+      }}
+      title="Failed to load data"
+    >
+      !
+    </span>
+  );
+}
+
+// ─── Pulse placeholder for loading numbers ────────────────────────────────────
+
+function NumberSkeleton({ white = false }: { white?: boolean }) {
+  return (
+    <Skeleton
+      className="mt-2"
+      style={{
+        width: 72,
+        height: 36,
+        borderRadius: 8,
+        backgroundColor: white ? "rgba(255,255,255,0.30)" : undefined,
+      }}
+    />
+  );
+}
 
 // ─── Shared card shell ────────────────────────────────────────────────────────
 
@@ -39,9 +79,21 @@ function CardShell({ children, orange = false, onClick }: CardShellProps) {
 
 // ─── Card 1 — Total Detections (orange hero) ─────────────────────────────────
 
-function TotalDetectionsCard({ onClick }: { onClick?: () => void }) {
+function TotalDetectionsCard({
+  value,
+  isLoading,
+  error,
+  onClick,
+}: {
+  value: number;
+  isLoading: boolean;
+  error: boolean;
+  onClick?: () => void;
+}) {
   return (
     <CardShell orange onClick={onClick}>
+      {error && <ErrorBadge />}
+
       {/* Top-right icon */}
       <div
         className="absolute top-5 right-5 flex items-center justify-center rounded-full"
@@ -57,12 +109,16 @@ function TotalDetectionsCard({ onClick }: { onClick?: () => void }) {
         Total Detections
       </p>
 
-      <p
-        className="font-bold mt-2 leading-none"
-        style={{ fontSize: 40, color: "#ffffff", fontFamily: "Inter, sans-serif" }}
-      >
-        247
-      </p>
+      {isLoading ? (
+        <NumberSkeleton white />
+      ) : (
+        <p
+          className="font-bold mt-2 leading-none"
+          style={{ fontSize: 40, color: "#ffffff", fontFamily: "Inter, sans-serif" }}
+        >
+          {value}
+        </p>
+      )}
 
       <div className="flex items-center gap-1 mt-3">
         <ArrowUpRight size={14} color="rgba(255,255,255,0.80)" strokeWidth={2.5} />
@@ -76,9 +132,21 @@ function TotalDetectionsCard({ onClick }: { onClick?: () => void }) {
 
 // ─── Card 2 — Unique Tools ────────────────────────────────────────────────────
 
-function UniqueToolsCard({ onClick }: { onClick?: () => void }) {
+function UniqueToolsCard({
+  value,
+  isLoading,
+  error,
+  onClick,
+}: {
+  value: number;
+  isLoading: boolean;
+  error: boolean;
+  onClick?: () => void;
+}) {
   return (
     <CardShell onClick={onClick}>
+      {error && <ErrorBadge />}
+
       {/* Top-right icon */}
       <div
         className="absolute top-5 right-5 flex items-center justify-center rounded-full"
@@ -94,12 +162,16 @@ function UniqueToolsCard({ onClick }: { onClick?: () => void }) {
         Unique Tools
       </p>
 
-      <p
-        className="font-bold mt-2 leading-none"
-        style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
-      >
-        34
-      </p>
+      {isLoading ? (
+        <NumberSkeleton />
+      ) : (
+        <p
+          className="font-bold mt-2 leading-none"
+          style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
+        >
+          {value}
+        </p>
+      )}
 
       <div className="flex items-center gap-1 mt-3">
         <ArrowUpRight size={14} color="#16A34A" strokeWidth={2.5} />
@@ -113,9 +185,21 @@ function UniqueToolsCard({ onClick }: { onClick?: () => void }) {
 
 // ─── Card 3 — High Risk Events ────────────────────────────────────────────────
 
-function HighRiskCard({ onClick }: { onClick?: () => void }) {
+function HighRiskCard({
+  value,
+  isLoading,
+  error,
+  onClick,
+}: {
+  value: number;
+  isLoading: boolean;
+  error: boolean;
+  onClick?: () => void;
+}) {
   return (
     <CardShell onClick={onClick}>
+      {error && <ErrorBadge />}
+
       {/* Top-right icon */}
       <div
         className="absolute top-5 right-5 flex items-center justify-center rounded-full"
@@ -131,12 +215,16 @@ function HighRiskCard({ onClick }: { onClick?: () => void }) {
         High Risk
       </p>
 
-      <p
-        className="font-bold mt-2 leading-none"
-        style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
-      >
-        5
-      </p>
+      {isLoading ? (
+        <NumberSkeleton />
+      ) : (
+        <p
+          className="font-bold mt-2 leading-none"
+          style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
+        >
+          {value}
+        </p>
+      )}
 
       <div className="flex items-center gap-1 mt-3">
         <ArrowUpRight size={14} color="#DC2626" strokeWidth={2.5} />
@@ -150,9 +238,21 @@ function HighRiskCard({ onClick }: { onClick?: () => void }) {
 
 // ─── Card 4 — Unapproved Tools ────────────────────────────────────────────────
 
-function UnapprovedCard({ onClick }: { onClick?: () => void }) {
+function UnapprovedCard({
+  value,
+  isLoading,
+  error,
+  onClick,
+}: {
+  value: number;
+  isLoading: boolean;
+  error: boolean;
+  onClick?: () => void;
+}) {
   return (
     <CardShell onClick={onClick}>
+      {error && <ErrorBadge />}
+
       {/* Top-right icon */}
       <div
         className="absolute top-5 right-5 flex items-center justify-center rounded-full"
@@ -168,12 +268,16 @@ function UnapprovedCard({ onClick }: { onClick?: () => void }) {
         Unapproved
       </p>
 
-      <p
-        className="font-bold mt-2 leading-none"
-        style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
-      >
-        13
-      </p>
+      {isLoading ? (
+        <NumberSkeleton />
+      ) : (
+        <p
+          className="font-bold mt-2 leading-none"
+          style={{ fontSize: 36, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
+        >
+          {value}
+        </p>
+      )}
 
       <div className="flex items-center gap-1 mt-3">
         {/* Amber dot instead of arrow */}
@@ -196,12 +300,35 @@ interface KpiCardsProps {
 }
 
 export function KpiCards({ onNavigate }: KpiCardsProps) {
+  const { data: stats, isLoading, error } = useStats();
+  const hasError = !!error;
+
   return (
     <div className="flex gap-4 w-full">
-      <TotalDetectionsCard onClick={() => onNavigate?.("live-feed")} />
-      <UniqueToolsCard onClick={() => onNavigate?.("subscriptions")} />
-      <HighRiskCard onClick={() => onNavigate?.("alerts")} />
-      <UnapprovedCard onClick={() => onNavigate?.("alerts")} />
+      <TotalDetectionsCard
+        value={stats?.totalDetections ?? 0}
+        isLoading={isLoading}
+        error={hasError}
+        onClick={() => onNavigate?.("live-feed")}
+      />
+      <UniqueToolsCard
+        value={stats?.uniqueTools ?? 0}
+        isLoading={isLoading}
+        error={hasError}
+        onClick={() => onNavigate?.("subscriptions")}
+      />
+      <HighRiskCard
+        value={stats?.highRiskCount ?? 0}
+        isLoading={isLoading}
+        error={hasError}
+        onClick={() => onNavigate?.("alerts")}
+      />
+      <UnapprovedCard
+        value={stats?.unapprovedCount ?? 0}
+        isLoading={isLoading}
+        error={hasError}
+        onClick={() => onNavigate?.("alerts")}
+      />
     </div>
   );
 }

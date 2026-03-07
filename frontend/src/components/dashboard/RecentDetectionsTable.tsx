@@ -1,7 +1,10 @@
-import { useState } from "react";
-import { Search, SlidersHorizontal, MoreHorizontal, ChevronLeft, ChevronRight, X, Activity, AlertTriangle, User, ExternalLink } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Search, SlidersHorizontal, MoreHorizontal, ChevronLeft, ChevronRight, X, Activity, AlertTriangle, ExternalLink } from "lucide-react";
+import { useEvents } from "@/hooks/useDashboard";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { DetectionEvent } from "@/data/mockData";
 
-// ─── Data ──────────────────────────────────────────────────────────────────
+// ─── Internal row type ─────────────────────────────────────────────────────
 
 type Status = "approved" | "high-risk" | "pending";
 
@@ -17,59 +20,46 @@ interface Detection {
   checked?: boolean;
 }
 
-const rows: Detection[] = [
-  {
-    id: "1",
-    orderId: "DEV-00247",
-    activityColor: "#3B82F6",
-    activityLabel: "OpenAI API",
-    process: "python.exe",
-    department: "Engineering",
-    status: "approved",
-    date: "Apr 17, 2026 03:45 PM",
-  },
-  {
-    id: "2",
-    orderId: "DEV-00246",
-    activityColor: "#8B5CF6",
-    activityLabel: "Anthropic API",
-    process: "node.exe",
-    department: "Engineering",
-    status: "high-risk",
-    date: "Apr 17, 2026 02:31 PM",
-  },
-  {
-    id: "3",
-    orderId: "DEV-00245",
-    activityColor: "#16A34A",
-    activityLabel: "GitHub Copilot",
-    process: "Code.exe",
-    department: "Engineering",
-    status: "approved",
-    date: "Apr 17, 2026 01:14 PM",
-    checked: true,
-  },
-  {
-    id: "4",
-    orderId: "DEV-00244",
-    activityColor: "#FF5C1A",
-    activityLabel: "Runway",
-    process: "chrome.exe",
-    department: "Marketing",
-    status: "pending",
-    date: "Apr 17, 2026 12:02 PM",
-  },
-  {
-    id: "5",
-    orderId: "DEV-00243",
-    activityColor: "#DC2626",
-    activityLabel: "Replicate",
-    process: "python.exe",
-    department: "Engineering",
-    status: "high-risk",
-    date: "Apr 17, 2026 10:58 AM",
-  },
-];
+// ─── Color mapping ─────────────────────────────────────────────────────────
+
+const categoryColorMap: Record<string, string> = {
+  "code-assistant": "#3B82F6",
+  "llm-api": "#8B5CF6",
+  "chatbot": "#FF5C1A",
+  "image-gen": "#DC2626",
+  "search": "#16A34A",
+  "writing": "#D97706",
+  "video": "#EC4899",
+};
+
+const riskColorMap: Record<string, string> = {
+  high: "#DC2626",
+  medium: "#D97706",
+  low: "#16A34A",
+};
+
+function getActivityColor(event: DetectionEvent): string {
+  return categoryColorMap[event.category] ?? riskColorMap[event.risk_level] ?? "#3B82F6";
+}
+
+function mapStatus(event: DetectionEvent): Status {
+  if (event.risk_level === "high") return "high-risk";
+  if (event.is_approved) return "approved";
+  return "pending";
+}
+
+function mapDetection(event: DetectionEvent, index: number): Detection {
+  return {
+    id: event.event_id,
+    orderId: `DEV-${event.event_id.slice(0, 8).toUpperCase()}`,
+    activityColor: getActivityColor(event),
+    activityLabel: event.tool_name,
+    process: event.process_name,
+    department: event.department,
+    status: mapStatus(event),
+    date: new Date(event.timestamp).toLocaleString(),
+  };
+}
 
 // ─── Status badge ──────────────────────────────────────────────────────────
 
@@ -115,14 +105,14 @@ function Checkbox({ checked, onChange }: { checked: boolean; onChange: (e: React
 
 // ─── Main component ────────────────────────────────────────────────────────
 
-// ─── Extended Mock Data ─────────────────────────────────────────────────────
-const baseRows = rows;
-const extendedRows = Array.from({ length: 45 }, (_, i) => {
-  const base = baseRows[i % baseRows.length];
-  return { ...base, id: `${base.id}-${i}`, orderId: `DEV-${247 - i}` };
-});
-
 export function RecentDetectionsTable() {
+  const { data: eventsData, isLoading, error } = useEvents();
+
+  const allRows = useMemo(() => {
+    if (!eventsData?.events?.length) return [];
+    return eventsData.events.map((e, i) => mapDetection(e, i));
+  }, [eventsData]);
+
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -139,14 +129,29 @@ export function RecentDetectionsTable() {
   };
 
   // Filter & Search Logic
-  const filteredRows = extendedRows.filter(r => 
-    r.activityLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.process.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-  
+  const filteredRows = useMemo(() => {
+    if (!searchQuery) return allRows;
+    const q = searchQuery.toLowerCase();
+    return allRows.filter(r =>
+      r.activityLabel.toLowerCase().includes(q) ||
+      r.department.toLowerCase().includes(q) ||
+      r.process.toLowerCase().includes(q)
+    );
+  }, [allRows, searchQuery]);
+
   const totalPages = Math.ceil(filteredRows.length / 5) || 1;
   const currentRows = filteredRows.slice((currentPage - 1) * 5, currentPage * 5);
+
+  // Generate page buttons — show up to 3 pages around current
+  const pageButtons = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 3;
+    let start = Math.max(1, currentPage - 1);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start < maxButtons - 1) start = Math.max(1, end - maxButtons + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  }, [currentPage, totalPages]);
 
   const cols = ["", "ORDER ID", "ACTIVITY", "DEPARTMENT", "STATUS", "DATE", ""];
 
@@ -280,94 +285,145 @@ export function RecentDetectionsTable() {
           </thead>
 
           {/* Rows */}
-          <tbody className="animate-in fade-in duration-300" key={currentPage}>
-            {currentRows.map((row, idx) => {
-              const isChecked = checkedIds.has(row.id);
-              const isLast = idx === currentRows.length - 1;
-              return (
-                <tr
-                  key={row.id}
-                  onClick={() => setSelectedEvent(row)}
-                  className="cursor-pointer transition-colors"
-                  style={{
-                    backgroundColor: isChecked ? "#FFF8F5" : "transparent",
-                    borderBottom: isLast ? "none" : "1px solid #F8FAFC",
-                    minHeight: 56,
-                    transition: "background-color 150ms ease",
-                  }}
-                  onMouseEnter={e => {
-                    if (!isChecked)
-                      (e.currentTarget as HTMLTableRowElement).style.backgroundColor = "#FAFAFA";
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
-                      isChecked ? "#FFF8F5" : "transparent";
-                  }}
-                >
-                  {/* Checkbox */}
+          <tbody className="animate-in fade-in duration-300" key={isLoading ? "loading" : currentPage}>
+            {isLoading ? (
+              // Skeleton loading rows
+              Array.from({ length: 5 }).map((_, idx) => (
+                <tr key={`skel-${idx}`} style={{ borderBottom: idx === 4 ? "none" : "1px solid #F8FAFC" }}>
                   <td style={{ padding: "14px 0 14px 20px", width: 36 }}>
-                    <Checkbox checked={isChecked} onChange={(e) => toggle(row.id, e as any)} />
+                    <Skeleton className="w-4 h-4 rounded" />
                   </td>
-
-                  {/* Order ID */}
                   <td style={{ padding: "14px 12px" }}>
-                    <span style={{ fontSize: 13, color: "#94A3B8", fontFamily: "monospace" }}>
-                      {row.orderId}
-                    </span>
+                    <Skeleton className="w-20 h-4 rounded" />
                   </td>
-
-                  {/* Activity */}
                   <td style={{ padding: "14px 12px" }}>
                     <div className="flex items-center gap-2.5">
-                      <div
-                        className="rounded-lg flex-shrink-0"
-                        style={{ width: 30, height: 30, backgroundColor: row.activityColor + "18" }}
-                      >
-                        <svg width="30" height="30" viewBox="0 0 30 30">
-                          <circle cx="15" cy="15" r="5" fill={row.activityColor} />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-semibold" style={{ fontSize: 14, color: "#1A1A2E", lineHeight: 1.3 }}>
-                          {row.activityLabel}
-                        </p>
-                        <p style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.3 }}>
-                          {row.process}
-                        </p>
+                      <Skeleton className="w-[30px] h-[30px] rounded-lg" />
+                      <div className="flex flex-col gap-1">
+                        <Skeleton className="w-24 h-4 rounded" />
+                        <Skeleton className="w-16 h-3 rounded" />
                       </div>
                     </div>
                   </td>
-
-                  {/* Department */}
                   <td style={{ padding: "14px 12px" }}>
-                    <span style={{ fontSize: 14, color: "#1A1A2E" }}>{row.department}</span>
+                    <Skeleton className="w-20 h-4 rounded" />
                   </td>
-
-                  {/* Status */}
                   <td style={{ padding: "14px 12px" }}>
-                    <StatusBadge status={row.status} />
+                    <Skeleton className="w-16 h-4 rounded" />
                   </td>
-
-                  {/* Date */}
-                  <td style={{ padding: "14px 12px", whiteSpace: "nowrap" }}>
-                    <span style={{ fontSize: 13, color: "#94A3B8" }}>{row.date}</span>
+                  <td style={{ padding: "14px 12px" }}>
+                    <Skeleton className="w-32 h-4 rounded" />
                   </td>
-
-                  {/* Menu */}
                   <td style={{ padding: "14px 20px 14px 12px" }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); /* Open Action Menu Context */ }}
-                      className="flex items-center justify-center rounded-lg transition-colors"
-                      style={{ color: "#C0C8D4", backgroundColor: "transparent", width: 28, height: 28 }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#1A1A2E"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#C0C8D4"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
-                    >
-                      <MoreHorizontal size={15} strokeWidth={2} />
-                    </button>
+                    <Skeleton className="w-7 h-7 rounded-lg" />
                   </td>
                 </tr>
-              );
-            })}
+              ))
+            ) : error ? (
+              <tr>
+                <td colSpan={cols.length} style={{ padding: "40px 20px", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#DC2626" }}>
+                    Failed to load detection events
+                  </p>
+                </td>
+              </tr>
+            ) : currentRows.length === 0 ? (
+              <tr>
+                <td colSpan={cols.length} style={{ padding: "40px 20px", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#94A3B8" }}>
+                    No detections found
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              currentRows.map((row, idx) => {
+                const isChecked = checkedIds.has(row.id);
+                const isLast = idx === currentRows.length - 1;
+                return (
+                  <tr
+                    key={row.id}
+                    onClick={() => setSelectedEvent(row)}
+                    className="cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: isChecked ? "#FFF8F5" : "transparent",
+                      borderBottom: isLast ? "none" : "1px solid #F8FAFC",
+                      minHeight: 56,
+                      transition: "background-color 150ms ease",
+                    }}
+                    onMouseEnter={e => {
+                      if (!isChecked)
+                        (e.currentTarget as HTMLTableRowElement).style.backgroundColor = "#FAFAFA";
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
+                        isChecked ? "#FFF8F5" : "transparent";
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <td style={{ padding: "14px 0 14px 20px", width: 36 }}>
+                      <Checkbox checked={isChecked} onChange={(e) => toggle(row.id, e as any)} />
+                    </td>
+
+                    {/* Order ID */}
+                    <td style={{ padding: "14px 12px" }}>
+                      <span style={{ fontSize: 13, color: "#94A3B8", fontFamily: "monospace" }}>
+                        {row.orderId}
+                      </span>
+                    </td>
+
+                    {/* Activity */}
+                    <td style={{ padding: "14px 12px" }}>
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="rounded-lg flex-shrink-0"
+                          style={{ width: 30, height: 30, backgroundColor: row.activityColor + "18" }}
+                        >
+                          <svg width="30" height="30" viewBox="0 0 30 30">
+                            <circle cx="15" cy="15" r="5" fill={row.activityColor} />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="font-semibold" style={{ fontSize: 14, color: "#1A1A2E", lineHeight: 1.3 }}>
+                            {row.activityLabel}
+                          </p>
+                          <p style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.3 }}>
+                            {row.process}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Department */}
+                    <td style={{ padding: "14px 12px" }}>
+                      <span style={{ fontSize: 14, color: "#1A1A2E" }}>{row.department}</span>
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: "14px 12px" }}>
+                      <StatusBadge status={row.status} />
+                    </td>
+
+                    {/* Date */}
+                    <td style={{ padding: "14px 12px", whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 13, color: "#94A3B8" }}>{row.date}</span>
+                    </td>
+
+                    {/* Menu */}
+                    <td style={{ padding: "14px 20px 14px 12px" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); /* Open Action Menu Context */ }}
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ color: "#C0C8D4", backgroundColor: "transparent", width: 28, height: 28 }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "#1A1A2E"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#F8FAFC"; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "#C0C8D4"; (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent"; }}
+                      >
+                        <MoreHorizontal size={15} strokeWidth={2} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
@@ -395,7 +451,7 @@ export function RecentDetectionsTable() {
           </button>
 
           {/* Pages */}
-          {[1, 2, 3].map(p => (
+          {pageButtons.map(p => (
             <button
               key={p}
               onClick={() => setCurrentPage(p)}
