@@ -1,5 +1,4 @@
 fastapi
-mangum
 supabase
 python-jose[cryptography]
 python-dotenv
