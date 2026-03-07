@@ -1,0 +1,168 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-03-07",
+  "description": "CIDR ranges for AI API CDN providers",
+  "ranges": [
+    {
+      "cdn": "Cloudflare",
+      "tool": "OpenAI",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Anthropic",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Google AI",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Cohere",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "AWS CloudFront",
+      "tool": "OpenAI",
+      "ranges": [
+        "18.164.0.0/15",
+        "18.208.0.0/12",
+        "52.94.76.0/10",
+        "54.182.0.0/16",
+        "54.192.0.0/16"
+      ]
+    },
+    {
+      "cdn": "AWS CloudFront",
+      "tool": "Anthropic",
+      "ranges": [
+        "18.164.0.0/15",
+        "18.208.0.0/12",
+        "52.94.76.0/10",
+        "54.182.0.0/16",
+        "54.192.0.0/16"
+      ]
+    },
+    {
+      "cdn": "AWS CloudFront",
+      "tool": "Hugging Face",
+      "ranges": [
+        "18.164.0.0/15",
+        "18.208.0.0/12",
+        "52.94.76.0/10"
+      ]
+    },
+    {
+      "cdn": "AWS CloudFront",
+      "tool": "Replicate",
+      "ranges": [
+        "18.164.0.0/15",
+        "18.208.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Azure CDN",
+      "tool": "Microsoft AI",
+      "ranges": [
+        "13.64.0.0/11",
+        "13.96.0.0/13",
+        "13.104.0.0/12",
+        "20.0.0.0/10",
+        "40.64.0.0/10",
+        "52.0.0.0/8"
+      ]
+    },
+    {
+      "cdn": "Azure CDN",
+      "tool": "OpenAI",
+      "ranges": [
+        "13.64.0.0/11",
+        "13.96.0.0/13",
+        "13.104.0.0/12",
+        "20.0.0.0/10",
+        "40.64.0.0/10"
+      ]
+    },
+    {
+      "cdn": "Azure CDN",
+      "tool": "Mistral AI",
+      "ranges": [
+        "13.64.0.0/11",
+        "20.0.0.0/10",
+        "40.64.0.0/10"
+      ]
+    },
+    {
+      "cdn": "Azure CDN",
+      "tool": "AI21 Labs",
+      "ranges": [
+        "13.64.0.0/11",
+        "20.0.0.0/10"
+      ]
+    },
+    {
+      "cdn": "Fastly",
+      "tool": "OpenAI",
+      "ranges": [
+        "23.32.0.0/11",
+        "23.32.0.0/12",
+        "199.232.0.0/16"
+      ]
+    },
+    {
+      "cdn": "Fastly",
+      "tool": "Cohere",
+      "ranges": [
+        "23.32.0.0/11",
+        "199.232.0.0/16"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Perplexity",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Together AI",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Meta AI",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    },
+    {
+      "cdn": "Cloudflare",
+      "tool": "Mistral AI",
+      "ranges": [
+        "13.0.0.0/8",
+        "104.16.0.0/12"
+      ]
+    }
+  ],
+  "notes": "These ranges are used to attribute CDN IPs back to their origin AI tool. When a connection is detected to a CDN IP, the agent checks if the IP falls within any of these ranges and attributes the traffic to the corresponding tool based on reverse DNS or other signals."
+}
