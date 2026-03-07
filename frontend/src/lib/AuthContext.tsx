@@ -1,8 +1,6 @@
 import {
   createContext,
   useContext,
-  useEffect,
-  useState,
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
@@ -11,7 +9,6 @@ import { supabase } from "@/lib/supabase";
 interface AuthContextType {
   session: Session | null;
   user: User | null;
-  loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -19,38 +16,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+interface AuthProviderProps {
+  children: ReactNode;
+  session: Session | null;
+}
 
-  useEffect(() => {
-    let isMounted = true;
-
-    // 1. Resolve the initial session FIRST — nothing renders until this completes.
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (!isMounted) return;
-      setSession(s);
-      setUser(s?.user ?? null);
-      setLoading(false); // <-- only place that flips loading off
-    });
-
-    // 2. Subscribe to future changes (sign-in, sign-out, token refresh).
-    //    This must NOT set loading — getSession() above already handles the
-    //    initial load. onAuthStateChange only handles *subsequent* changes.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (!isMounted) return;
-      setSession(s);
-      setUser(s?.user ?? null);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+/**
+ * AuthProvider receives the session from App.tsx (single source of truth).
+ * It does NOT call getSession() or manage session state independently.
+ * It only provides auth actions (signIn, signUp, signOut) and exposes
+ * the session/user to child components via context.
+ */
+export function AuthProvider({ children, session }: AuthProviderProps) {
+  const user = session?.user ?? null;
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -73,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, user, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

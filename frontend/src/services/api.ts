@@ -5,51 +5,33 @@
  *
  * API_BASE is empty so that all requests use relative URLs.
  * This works on both localhost (via Vite proxy) and Vercel (same origin).
+ *
+ * Token is set by App.tsx via setApiToken() whenever the session changes.
+ * This avoids any race condition with supabase.auth.getSession().
  */
 
 import type { DetectionEvent, HeartbeatEvent } from "@/data/mockData";
-import { supabase } from "@/lib/supabase";
 
 export const API_BASE = "";
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  // Try getSession first
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+// ---------------------------------------------------------------------------
+// Module-level token store — set by App.tsx, read by every fetch call.
+// This is the single source of truth for the auth token.
+// ---------------------------------------------------------------------------
+let _token: string | null = null;
 
-  console.log("[api] getAuthHeaders session:", session ? "exists" : "null");
-  console.log("[api] token:", session?.access_token ? session.access_token.slice(0, 20) + "…" : "NONE");
+export function setApiToken(token: string | null) {
+  _token = token;
+}
 
-  if (session?.access_token) {
-    return {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    };
+function getAuthHeaders(): Record<string, string> {
+  if (!_token) {
+    throw new Error("Not authenticated — no token available");
   }
-
-  // Fallback: session might not be hydrated yet — wait for onAuthStateChange
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      sub.unsubscribe();
-      console.error("[api] getAuthHeaders timed out waiting for session");
-      reject(new Error("Not authenticated"));
-    }, 5000);
-
-    const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(
-      (_event, s) => {
-        if (s?.access_token) {
-          clearTimeout(timeout);
-          sub.unsubscribe();
-          console.log("[api] getAuthHeaders got session from onAuthStateChange");
-          resolve({
-            Authorization: `Bearer ${s.access_token}`,
-            "Content-Type": "application/json",
-          });
-        }
-      }
-    );
-  });
+  return {
+    Authorization: `Bearer ${_token}`,
+    "Content-Type": "application/json",
+  };
 }
 
 async function apiFetch<T>(
@@ -66,7 +48,7 @@ async function apiFetch<T>(
     const qsStr = qs.toString();
     if (qsStr) url += `?${qsStr}`;
   }
-  const headers = await getAuthHeaders();
+  const headers = getAuthHeaders();
   const res = await fetch(url, {
     ...init,
     headers: { ...headers, ...(init?.headers || {}) },
@@ -229,7 +211,7 @@ export const fetchMe = (): Promise<UserProfile> =>
 export const dismissAlert = async (
   alertId: string
 ): Promise<{ status: string; id: string }> => {
-  const headers = await getAuthHeaders();
+  const headers = getAuthHeaders();
   const res = await fetch(
     `${API_BASE}/api/alerts/${encodeURIComponent(alertId)}`,
     { method: "DELETE", headers }
@@ -241,7 +223,7 @@ export const dismissAlert = async (
 export const resolveAlert = async (
   alertId: string
 ): Promise<{ status: string; id: string }> => {
-  const headers = await getAuthHeaders();
+  const headers = getAuthHeaders();
   const res = await fetch(
     `${API_BASE}/api/alerts/${encodeURIComponent(alertId)}/resolve`,
     { method: "PUT", headers }
@@ -254,7 +236,7 @@ export const inviteTeamMember = async (
   email: string,
   role: string = "member"
 ): Promise<{ status: string; email: string }> => {
-  const headers = await getAuthHeaders();
+  const headers = getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/team/invite`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -267,7 +249,7 @@ export const inviteTeamMember = async (
 export const updateSettings = async (
   settings: Partial<OrgSettings>
 ): Promise<{ status: string }> => {
-  const headers = await getAuthHeaders();
+  const headers = getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/settings`, {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },

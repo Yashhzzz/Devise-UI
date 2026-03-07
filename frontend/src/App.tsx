@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { setApiToken } from "@/services/api";
 import type { Session } from "@supabase/supabase-js";
 import Login from "@/pages/Login";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -71,6 +72,7 @@ const App = () => {
     // 1. Check for existing session — nothing renders until this resolves.
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      setApiToken(data.session?.access_token ?? null);
       setSessionLoaded(true);
     });
 
@@ -79,6 +81,7 @@ const App = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      setApiToken(s?.access_token ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -92,7 +95,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <AuthProvider>
+        <AuthProvider session={session}>
           {session ? <Dashboard /> : <Login />}
         </AuthProvider>
       </TooltipProvider>
