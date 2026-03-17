@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Search, Activity } from "lucide-react";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 interface SearchModalProps {
   isOpen: boolean;

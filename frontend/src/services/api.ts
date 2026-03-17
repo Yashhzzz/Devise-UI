@@ -15,7 +15,10 @@ import {
   deleteDoc,
   orderBy,
   limit as firestoreLimit,
-  Timestamp
+  Timestamp,
+  onSnapshot,
+  addDoc,
+  serverTimestamp
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import type { DetectionEvent, HeartbeatEvent } from "@/data/mockData";
@@ -456,4 +459,336 @@ export const updateSettings = async (settings: Partial<OrgSettings>): Promise<{ 
   const orgId = await getOrgId();
   await setDoc(doc(db, "org_settings", orgId), settings, { merge: true });
   return { status: "updated" };
+};
+
+// ---------------------------------------------------------------------------
+// AI FIREWALL
+// ---------------------------------------------------------------------------
+export interface FirewallRule {
+  id: string;
+  tool_name: string;
+  domain: string;
+  status: "allowed" | "blocked";
+  updated_at: string;
+  updated_by: string;
+  block_count: number;
+}
+
+export interface BlockEvent {
+  id: string;
+  event_id: string;
+  tool_name: string;
+  domain: string;
+  user_id: string;
+  device_id: string;
+  timestamp: string;
+  block_reason: string | null;
+  policy_matched: string | null;
+  org_id: string;
+}
+
+export interface FirewallStats {
+  blockedToday: number;
+  blockEventsThisWeek: number;
+  policyViolations: number;
+  complianceScore: number;
+}
+
+export const fetchFirewallRules = async (): Promise<FirewallRule[]> => {
+  const orgId = await getOrgId();
+  const snap = await getDocs(
+    collection(db, "org_settings", orgId, "firewall_rules")
+  );
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as FirewallRule));
+};
+
+export const updateFirewallRule = async (
+  rule: Omit<FirewallRule, "id" | "block_count" | "updated_at" | "updated_by">
+): Promise<{ status: string }> => {
+  const orgId = await getOrgId();
+  const user = auth.currentUser;
+  const ruleId = rule.tool_name.replace(/\s+/g, "_").toLowerCase();
+  await setDoc(
+    doc(db, "org_settings", orgId, "firewall_rules", ruleId),
+    {
+      ...rule,
+      updated_at: new Date().toISOString(),
+      updated_by: user?.email || "unknown",
+      block_count: 0,
+    },
+    { merge: true }
+  );
+  return { status: "updated" };
+};
+
+export const deleteFirewallRule = async (toolName: string): Promise<void> => {
+  const orgId = await getOrgId();
+  const ruleId = toolName.replace(/\s+/g, "_").toLowerCase();
+  await deleteDoc(doc(db, "org_settings", orgId, "firewall_rules", ruleId));
+};
+
+export const fetchBlockEvents = async (limitN = 100): Promise<BlockEvent[]> => {
+  const orgId = await getOrgId();
+  const q = query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("event_type", "==", "blocked"),
+    orderBy("timestamp", "desc"),
+    firestoreLimit(limitN)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as BlockEvent));
+};
+
+export const fetchFirewallStats = async (): Promise<FirewallStats> => {
+  const orgId = await getOrgId();
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const weekStart = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+
+  const allBlocksSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("event_type", "==", "blocked")
+  ));
+
+  const allEventsSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId)
+  ));
+
+  const allBlocks = allBlocksSnap.docs.map(d => d.data());
+  const blockedToday = allBlocks.filter(e => (e.timestamp || "") >= todayStart).length;
+  const blockEventsThisWeek = allBlocks.filter(e => (e.timestamp || "") >= weekStart).length;
+  
+  const rulesSnap = await getDocs(collection(db, "org_settings", orgId, "firewall_rules"));
+  const totalRules = rulesSnap.size;
+  const allowedRules = rulesSnap.docs.filter(d => d.data().status === "allowed").length;
+  const complianceScore = totalRules > 0 ? Math.round((allowedRules / totalRules) * 100) : 100;
+
+  return {
+    blockedToday,
+    blockEventsThisWeek,
+    policyViolations: allBlocks.length,
+    complianceScore,
+  };
+};
+
+// Auto-populate firewall rules from detected events
+export const syncFirewallRulesFromEvents = async (): Promise<void> => {
+  const orgId = await getOrgId();
+  const eventsSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId)
+  ));
+
+  const existingSnap = await getDocs(collection(db, "org_settings", orgId, "firewall_rules"));
+  const existingIds = new Set(existingSnap.docs.map(d => d.id));
+
+  const toolsSeen: Record<string, { tool_name: string; domain: string }> = {};
+  eventsSnap.docs.forEach(d => {
+    const e = d.data();
+    if (e.tool_name) {
+      const ruleId = e.tool_name.replace(/\s+/g, "_").toLowerCase();
+      if (!toolsSeen[ruleId]) toolsSeen[ruleId] = { tool_name: e.tool_name, domain: e.domain || "" };
+    }
+  });
+
+  const user = auth.currentUser;
+  const batch: Promise<void>[] = [];
+  for (const [ruleId, info] of Object.entries(toolsSeen)) {
+    if (!existingIds.has(ruleId)) {
+      batch.push(setDoc(
+        doc(db, "org_settings", orgId, "firewall_rules", ruleId),
+        {
+          tool_name: info.tool_name,
+          domain: info.domain,
+          status: "allowed",
+          updated_at: new Date().toISOString(),
+          updated_by: user?.email || "system",
+          block_count: 0,
+        }
+      ));
+    }
+  }
+  await Promise.all(batch);
+};
+
+// ---------------------------------------------------------------------------
+// DATA SENSITIVITY
+// ---------------------------------------------------------------------------
+export type SensitivityFlag =
+  | "SOURCE_CODE"
+  | "FILE_UPLOAD"
+  | "LARGE_PASTE"
+  | "FINANCIAL_KEYWORDS"
+  | "CREDENTIALS_PATTERN";
+
+export interface SensitivityEvent {
+  id: string;
+  event_id: string;
+  tool_name: string;
+  domain: string;
+  user_id: string;
+  device_id: string;
+  timestamp: string;
+  sensitivity_flag: SensitivityFlag;
+  sensitivity_score: number;
+  window_title: string | null;
+  paste_size_chars: number | null;
+  file_name: string | null;
+  org_id: string;
+  reviewed: boolean;
+}
+
+export interface EmployeeRiskScore {
+  id: string;
+  user_email: string;
+  risk_score: number;
+  high_risk_events: number;
+  medium_risk_events: number;
+  last_incident: string;
+  top_sensitivity_type: string;
+  updated_at: string;
+}
+
+export interface DataRiskStats {
+  highRiskToday: number;
+  employeesWithRisk: number;
+  mostCommonType: string;
+  orgRiskScore: number;
+}
+
+export const fetchSensitivityEvents = async (
+  flag?: SensitivityFlag,
+  limitN = 100
+): Promise<SensitivityEvent[]> => {
+  const orgId = await getOrgId();
+  let q = query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("sensitivity_flag", "!=", null),
+    orderBy("sensitivity_flag"),
+    orderBy("timestamp", "desc"),
+    firestoreLimit(limitN)
+  );
+  const snap = await getDocs(q);
+  const events = snap.docs
+    .map(d => ({ id: d.id, ...d.data() } as SensitivityEvent))
+    .filter(e => !flag || e.sensitivity_flag === flag);
+  return events;
+};
+
+export const fetchEmployeeRiskScores = async (): Promise<EmployeeRiskScore[]> => {
+  const orgId = await getOrgId();
+  const snap = await getDocs(
+    collection(db, "risk_scores", orgId, "employees")
+  );
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() } as EmployeeRiskScore))
+    .sort((a, b) => b.risk_score - a.risk_score);
+};
+
+export const fetchDataRiskStats = async (): Promise<DataRiskStats> => {
+  const orgId = await getOrgId();
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+  const allSensitiveSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("sensitivity_flag", "!=", null)
+  ));
+
+  const all = allSensitiveSnap.docs.map(d => d.data());
+  const highRiskToday = all.filter(e => 
+    (e.timestamp || "") >= todayStart && (e.sensitivity_score || 0) >= 70
+  ).length;
+  
+  const employeeSet = new Set(all.map(e => e.user_id).filter(Boolean));
+  
+  const flagCounts: Record<string, number> = {};
+  all.forEach(e => {
+    if (e.sensitivity_flag) flagCounts[e.sensitivity_flag] = (flagCounts[e.sensitivity_flag] || 0) + 1;
+  });
+  const mostCommonType = Object.entries(flagCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
+  
+  const avgScore = all.length > 0
+    ? Math.round(all.reduce((s, e) => s + (e.sensitivity_score || 0), 0) / all.length)
+    : 0;
+
+  return {
+    highRiskToday,
+    employeesWithRisk: employeeSet.size,
+    mostCommonType,
+    orgRiskScore: avgScore,
+  };
+};
+
+export const markSensitivityEventReviewed = async (eventDocId: string): Promise<void> => {
+  await setDoc(doc(db, "detection_events", eventDocId), { reviewed: true }, { merge: true });
+};
+
+export const subscribeToHighRiskEvents = (
+  orgId: string,
+  callback: (events: SensitivityEvent[]) => void
+): (() => void) => {
+  const q = query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("sensitivity_flag", "!=", null),
+    orderBy("sensitivity_flag"),
+    orderBy("timestamp", "desc"),
+    firestoreLimit(20)
+  );
+  return onSnapshot(q, snap => {
+    const events = snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as SensitivityEvent))
+      .filter(e => (e.sensitivity_score || 0) >= 60);
+    callback(events);
+  });
+};
+
+// Rebuild employee risk scores from sensitivity events (client-side)
+export const rebuildEmployeeRiskScores = async (): Promise<void> => {
+  const orgId = await getOrgId();
+  const eventsSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("sensitivity_flag", "!=", null)
+  ));
+
+  const byEmployee: Record<string, SensitivityEvent[]> = {};
+  eventsSnap.docs.forEach(d => {
+    const e = { id: d.id, ...d.data() } as SensitivityEvent;
+    const key = e.user_id || "unknown";
+    if (!byEmployee[key]) byEmployee[key] = [];
+    byEmployee[key].push(e);
+  });
+
+  const batch: Promise<void>[] = [];
+  for (const [email, events] of Object.entries(byEmployee)) {
+    const highRisk = events.filter(e => (e.sensitivity_score || 0) >= 70).length;
+    const medRisk  = events.filter(e => (e.sensitivity_score || 0) >= 40 && (e.sensitivity_score || 0) < 70).length;
+    const avgScore = Math.round(events.reduce((s, e) => s + (e.sensitivity_score || 0), 0) / events.length);
+    const sorted   = events.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    const flagCounts: Record<string, number> = {};
+    events.forEach(e => { flagCounts[e.sensitivity_flag] = (flagCounts[e.sensitivity_flag] || 0) + 1; });
+    const topType = Object.entries(flagCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+
+    const scoreId = email.replace(/[^a-zA-Z0-9]/g, "_");
+    batch.push(setDoc(
+      doc(db, "risk_scores", orgId, "employees", scoreId),
+      {
+        user_email: email,
+        risk_score: avgScore,
+        high_risk_events: highRisk,
+        medium_risk_events: medRisk,
+        last_incident: sorted[0]?.timestamp || "",
+        top_sensitivity_type: topType,
+        updated_at: new Date().toISOString(),
+      }
+    ));
+  }
+  await Promise.all(batch);
 };

@@ -24,6 +24,8 @@ import { AlertsTab } from "@/components/dashboard/AlertsTab";
 import { SubscriptionsTab } from "@/components/dashboard/SubscriptionsTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { TeamTab } from "@/components/dashboard/TeamTab";
+import { FirewallTab } from "@/components/dashboard/FirewallTab";
+import { DataRiskTab } from "@/components/dashboard/DataRiskTab";
 
 // Landing Page Imports
 import { LandingPage } from "./pages/landing/LandingPage";
@@ -35,7 +37,7 @@ import { UseCasesPage } from "./pages/landing/UseCasesPage";
 import { DemoPage } from "./pages/landing/DemoPage";
 import NotFound from "./pages/landing/NotFound";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 const queryClient = new QueryClient();
 
@@ -71,6 +73,8 @@ function Dashboard() {
         {activeTab === "alerts"     && <AlertsTab />}
         {activeTab === "subscriptions" && <SubscriptionsTab />}
         {activeTab === "settings"   && <SettingsTab />}
+        {activeTab === "firewall"   && <FirewallTab />}
+        {activeTab === "data-risk"  && <DataRiskTab />}
       </div>
     </DashboardLayout>
   );

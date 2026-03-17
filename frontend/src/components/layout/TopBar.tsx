@@ -4,7 +4,7 @@ import { SearchModal } from "./SearchModal";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { UserProfileDropdown } from "./UserProfileDropdown";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 
 export interface NotificationItem {

@@ -9,12 +9,14 @@ import {
   HelpCircle,
   LogOut,
   PieChart,
+  Shield,
+  Eye,
 } from "lucide-react";
 import { useState } from "react";
 import { HelpModal } from "./HelpModal";
 import { SignOutModal } from "./SignOutModal";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 interface SidebarProps {
   activeTab: Tab;
@@ -22,13 +24,15 @@ interface SidebarProps {
 }
 
 const mainIcons = [
-  { id: "overview",  icon: Activity,  tab: "overview" },
+  { id: "overview",   icon: Activity,  tab: "overview" },
   { id: "live-feed", icon: BarChart2, tab: "live-feed" },
   { id: "analytics", icon: PieChart,  tab: "analytics" },
   { id: "devices",   icon: Monitor,   tab: "devices" },
   { id: "alerts",    icon: Bell,      tab: "alerts" },
   { id: "team",      icon: Users,     tab: "team" },
   { id: "layers",    icon: Layers,    tab: "subscriptions" },
+  { id: "firewall",  icon: Shield,    tab: "firewall" },
+  { id: "data-risk", icon: Eye,       tab: "data-risk" },
 ];
 
 export function AppSidebar({ activeTab, onTabChange }: SidebarProps) {
@@ -104,7 +108,7 @@ export function AppSidebar({ activeTab, onTabChange }: SidebarProps) {
           const isActive = tab ? activeTab === tab : false;
           
           return renderIconButton(id, icon, isActive, "#FF5C1A", "#FFF3EE", () => {
-            if (tab && (["overview", "live-feed", "analytics", "devices", "alerts", "subscriptions", "team"] as string[]).includes(tab)) {
+            if (tab && (["overview", "live-feed", "analytics", "devices", "alerts", "subscriptions", "team", "firewall", "data-risk"] as string[]).includes(tab)) {
               onTabChange(tab as Tab);
             }
           });

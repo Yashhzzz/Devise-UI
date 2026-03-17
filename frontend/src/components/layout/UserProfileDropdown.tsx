@@ -4,7 +4,7 @@ import { MyProfilePanel } from "./MyProfilePanel";
 import { HelpModal } from "./HelpModal";
 import { SignOutModal } from "./SignOutModal";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 interface UserProfileDropdownProps {
   isOpen: boolean;

@@ -1,7 +1,7 @@
 import { AppSidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
-type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
+type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
 interface DashboardShellProps {
   activeTab: Tab;
