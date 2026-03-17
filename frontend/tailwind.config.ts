@@ -13,7 +13,19 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["Inter", "sans-serif"],
+      },
       colors: {
+        "brand-cream": "#F5EDE0",
+        "brand-orange": "#F04E23",
+        "brand-navy": "#1A1A2E",
+        "brand-blue": "#1A56FF",
+        "brand-purple": "#7B2FFF",
+        "brand-green": "#16A34A",
+        "brand-dark": "#1A1A1A",
+        "brand-gray": "#6B7280",
+        "brand-white": "#FFFFFF",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -73,6 +85,10 @@ export default {
           "5": "hsl(var(--chart-5))",
         },
       },
+      boxShadow: {
+        soft: "0 0 0 1px rgba(0,0,0,.06), 0 1px 2px -1px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04)",
+        heavy: "0 0 0 1px rgba(0,0,0,.04), 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05)",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -96,3 +112,4 @@ export default {
   },
   plugins: [require("tailwindcss-animate")],
 } satisfies Config;
+

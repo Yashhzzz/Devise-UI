@@ -1,67 +1,24 @@
 /**
- * Devise Dashboard — API service layer
- * Backend: FastAPI deployed as Vercel serverless function
- * Auth: Supabase JWT attached to every request
- *
- * API_BASE is empty so that all requests use relative URLs.
- * This works on both localhost (via Vite proxy) and Vercel (same origin).
- *
- * Token is set by App.tsx via setApiToken() whenever the session changes.
- * This avoids any race condition with supabase.auth.getSession().
+ * Devise Dashboard — API service layer (Firebase Edition)
+ * Backend: None (Serverless / Direct Firestore)
+ * Auth: Firebase SDK
  */
 
+import { 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  getDoc, 
+  doc, 
+  setDoc, 
+  deleteDoc,
+  orderBy,
+  limit as firestoreLimit,
+  Timestamp
+} from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
 import type { DetectionEvent, HeartbeatEvent } from "@/data/mockData";
-
-export const API_BASE = "";
-
-// ---------------------------------------------------------------------------
-// Module-level token store — set by App.tsx, read by every fetch call.
-// This is the single source of truth for the auth token.
-// ---------------------------------------------------------------------------
-let _token: string | null = null;
-
-export function setApiToken(token: string | null) {
-  _token = token;
-}
-
-function getAuthHeaders(): Record<string, string> {
-  if (!_token) {
-    throw new Error("Not authenticated — no token available");
-  }
-  return {
-    Authorization: `Bearer ${_token}`,
-    "Content-Type": "application/json",
-  };
-}
-
-async function apiFetch<T>(
-  path: string,
-  params?: Record<string, string | number>,
-  init?: RequestInit
-): Promise<T> {
-  let url = `${API_BASE}${path}`;
-  if (params) {
-    const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null) qs.set(k, String(v));
-    });
-    const qsStr = qs.toString();
-    if (qsStr) url += `?${qsStr}`;
-  }
-  const headers = getAuthHeaders();
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...headers, ...(init?.headers || {}) },
-  });
-  if (res.status === 401) {
-    // Don't sign out automatically — the session may still be valid
-    // (race condition on first load, cold-start delay, etc.).
-    // React Query's retry will handle transient 401s.
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json() as Promise<T>;
-}
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -164,97 +121,339 @@ export interface UserProfile {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+async function getOrgId(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  
+  const profileRef = doc(db, "profiles", user.uid);
+  const profileDoc = await getDoc(profileRef);
+  
+  if (!profileDoc.exists()) {
+    // Lazy creation for users who signed up before the fix
+    console.log("Profile missing, creating default...");
+    const orgId = `org_${user.uid.slice(0, 8)}`;
+    
+    // Create Organization
+    await setDoc(doc(db, "organizations", orgId), {
+      id: orgId,
+      name: `${user.displayName || 'My'}'s Team`,
+      slug: orgId,
+      created_at: new Date().toISOString()
+    });
+
+    // Create User Profile
+    await setDoc(profileRef, {
+      id: user.uid,
+      email: user.email,
+      full_name: user.displayName || "",
+      org_id: orgId,
+      role: "admin",
+      department: "General",
+      created_at: new Date().toISOString()
+    });
+
+    // Create Default Org Settings
+    await setDoc(doc(db, "org_settings", orgId), {
+      id: orgId,
+      org_id: orgId,
+      monthly_budget: 1000,
+      alert_threshold: 80,
+      auto_block: false,
+      allowed_categories: ["AI Assistant", "Development"],
+      blocked_domains: [],
+      notification_email: true,
+      notification_slack: false
+    });
+
+    return orgId;
+  }
+  
+  return profileDoc.data().org_id;
+}
+
+// Stub for now (not used in direct Firestore version)
+export function setApiToken(_token: string | null) {}
+
+// ---------------------------------------------------------------------------
 // Fetchers
 // ---------------------------------------------------------------------------
-export const fetchEvents = (
+export const fetchEvents = async (
   category?: string,
   riskLevel?: string,
   limit = 200,
-  offset = 0
+  _offset = 0
 ): Promise<EventsResponse> => {
-  const params: Record<string, string | number> = { limit, offset };
-  if (category && category !== "all") params.category = category;
-  if (riskLevel && riskLevel !== "all") params.risk_level = riskLevel;
-  return apiFetch<EventsResponse>("/api/events", params);
+  const orgId = await getOrgId();
+  let q = query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    orderBy("timestamp", "desc"),
+    firestoreLimit(limit)
+  );
+
+  if (category && category !== "all") {
+    q = query(q, where("category", "==", category));
+  }
+  if (riskLevel && riskLevel !== "all") {
+    q = query(q, where("risk_level", "==", riskLevel));
+  }
+
+  const snapshot = await getDocs(q);
+  const events = snapshot.docs.map(doc => doc.data() as DetectionEvent);
+
+  return {
+    total: events.length,
+    events
+  };
 };
 
-export const fetchHeartbeats = (): Promise<HeartbeatEvent[]> =>
-  apiFetch<HeartbeatEvent[]>("/api/heartbeats");
+export const fetchHeartbeats = async (): Promise<HeartbeatEvent[]> => {
+  const orgId = await getOrgId();
+  const q = query(
+    collection(db, "heartbeats"),
+    where("org_id", "==", orgId),
+    orderBy("timestamp", "desc")
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data() as HeartbeatEvent);
+};
 
-export const fetchStats = (): Promise<StatsResponse> =>
-  apiFetch<StatsResponse>("/api/stats");
+export const fetchStats = async (): Promise<StatsResponse> => {
+  const orgId = await getOrgId();
+  
+  // In a real app with huge data, we'd use aggregation queries or cloud functions.
+  // For V1-V2, we process on the client or fetch a summary doc.
+  const eventsSnap = await getDocs(query(collection(db, "detection_events"), where("org_id", "==", orgId)));
+  const heartbeatsSnap = await getDocs(query(collection(db, "heartbeats"), where("org_id", "==", orgId)));
+  const tamperSnap = await getDocs(query(collection(db, "tamper_alerts"), where("org_id", "==", orgId)));
+  const gapSnap = await getDocs(query(collection(db, "agent_gaps"), where("org_id", "==", orgId), where("suspicious", "==", true)));
 
-export const fetchAlerts = (): Promise<AlertItem[]> =>
-  apiFetch<AlertItem[]>("/api/alerts");
+  const tools = new Set();
+  let highRiskCount = 0;
+  let unapprovedCount = 0;
+  let highRiskUnapproved = 0;
 
-export const fetchAnalytics = (): Promise<AnalyticsResponse> =>
-  apiFetch<AnalyticsResponse>("/api/analytics");
+  eventsSnap.docs.forEach(d => {
+    const data = d.data();
+    tools.add(data.tool_name);
+    if (data.risk_level === "high") highRiskCount++;
+    if (!data.is_approved) unapprovedCount++;
+    if (data.risk_level === "high" && !data.is_approved) highRiskUnapproved++;
+  });
 
-export const fetchSubscriptions = (): Promise<SubscriptionItem[]> =>
-  apiFetch<SubscriptionItem[]>("/api/subscriptions");
+  const now = new Date();
+  const sixMinsAgo = new Date(now.getTime() - 6 * 60000).toISOString();
+  
+  const onlineDevices = heartbeatsSnap.docs.filter(d => {
+    const ts = d.data().timestamp;
+    return ts && ts >= sixMinsAgo;
+  }).length;
 
-export const fetchSpendOverview = (): Promise<SpendOverview> =>
-  apiFetch<SpendOverview>("/api/overview/spend");
+  return {
+    totalDetections: eventsSnap.size,
+    uniqueTools: tools.size,
+    highRiskCount,
+    unapprovedCount,
+    onlineDevices,
+    totalDevices: heartbeatsSnap.size,
+    activeAlerts: tamperSnap.size + gapSnap.size + highRiskUnapproved
+  };
+};
 
-export const fetchTeam = (): Promise<TeamResponse> =>
-  apiFetch<TeamResponse>("/api/team");
+export const fetchAlerts = async (): Promise<AlertItem[]> => {
+  const orgId = await getOrgId();
+  const alerts: AlertItem[] = [];
 
-export const fetchSettings = (): Promise<OrgSettings> =>
-  apiFetch<OrgSettings>("/api/settings");
+  // High-risk unapproved
+  const hrSnap = await getDocs(query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("risk_level", "==", "high"),
+    where("is_approved", "==", false)
+  ));
+  hrSnap.forEach(d => {
+    const r = d.data();
+    alerts.push({
+      id: `hr-${r.event_id}`,
+      type: "high_risk",
+      title: `High-risk unapproved tool: ${r.tool_name || "Unknown"}`,
+      description: `${r.user_id || "?"} accessed ${r.domain || "?"} via ${r.process_name || "?"}`,
+      timestamp: r.timestamp,
+      severity: "high"
+    });
+  });
 
-export const fetchMe = (): Promise<UserProfile> =>
-  apiFetch<UserProfile>("/api/me");
+  // Tamper alerts
+  const taSnap = await getDocs(query(collection(db, "tamper_alerts"), where("org_id", "==", orgId)));
+  taSnap.forEach(d => {
+    const r = d.data();
+    alerts.push({
+      id: `ta-${r.device_id}-${r.timestamp}`,
+      type: "tamper",
+      title: "Agent binary tampered",
+      description: `Device ${String(r.device_id).slice(0, 8)}… — hash mismatch detected`,
+      timestamp: r.timestamp,
+      severity: "high"
+    });
+  });
+
+  // Dismissed filter
+  const dismissedSnap = await getDocs(query(collection(db, "dismissed_alerts"), where("org_id", "==", orgId)));
+  const dismissedIds = new Set(dismissedSnap.docs.map(d => d.data().alert_id));
+
+  return alerts
+    .filter(a => !dismissedIds.has(a.id))
+    .sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+};
+
+export const fetchAnalytics = async (): Promise<AnalyticsResponse> => {
+  const orgId = await getOrgId();
+  const eventsSnap = await getDocs(query(collection(db, "detection_events"), where("org_id", "==", orgId)));
+  
+  const toolCounts: Record<string, number> = {};
+  const catCounts: Record<string, number> = {};
+  const procCounts: Record<string, number> = {};
+  const timeCounts: Record<string, number> = {};
+
+  eventsSnap.docs.forEach(d => {
+    const e = d.data();
+    const tn = e.tool_name || "Unknown";
+    toolCounts[tn] = (toolCounts[tn] || 0) + 1;
+    
+    const cat = e.category || "Unknown";
+    catCounts[cat] = (catCounts[cat] || 0) + 1;
+    
+    const proc = e.process_name || "Unknown";
+    procCounts[proc] = (procCounts[proc] || 0) + 1;
+    
+    const ts = e.timestamp || "";
+    if (ts && ts.length >= 13) {
+      const hour = ts.substring(11, 13) + ":00";
+      timeCounts[hour] = (timeCounts[hour] || 0) + 1;
+    }
+  });
+
+  return {
+    byTool: Object.entries(toolCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 8),
+    byCategory: Object.entries(catCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value),
+    overTime: Object.entries(timeCounts).map(([time, count]) => ({ time, count })).sort((a, b) => a.time.localeCompare(b.time)),
+    topProcesses: Object.entries(procCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 10),
+  };
+};
+
+export const fetchSubscriptions = async (): Promise<SubscriptionItem[]> => {
+  const orgId = await getOrgId();
+  const q = query(collection(db, "subscriptions"), where("org_id", "==", orgId), orderBy("tool_name"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => doc.data() as SubscriptionItem);
+};
+
+export const fetchSpendOverview = async (): Promise<SpendOverview> => {
+  const orgId = await getOrgId();
+  const subsSnap = await getDocs(query(collection(db, "subscriptions"), where("org_id", "==", orgId)));
+  const settingsDoc = await getDoc(doc(db, "org_settings", orgId));
+
+  const subs = subsSnap.docs.map(d => d.data());
+  const activeSubs = subs.filter(s => s.status === "active");
+  const totalMonthlySpend = activeSubs.reduce((acc, s) => acc + (Number(s.cost_monthly) || 0), 0);
+  
+  const zombies = subs.filter(s => s.status === "zombie");
+  const zombieCost = zombies.reduce((acc, s) => acc + (Number(s.cost_monthly) || 0), 0);
+  
+  const budget = settingsDoc.exists() ? (Number(settingsDoc.data().monthly_budget) || 0) : 0;
+
+  return {
+    totalMonthlySpend,
+    monthlyBudget: budget,
+    budgetRemaining: budget - totalMonthlySpend,
+    zombieLicenses: zombies.length,
+    zombieCost
+  };
+};
+
+export const fetchTeam = async (): Promise<TeamResponse> => {
+  const orgId = await getOrgId();
+  const membersSnap = await getDocs(query(collection(db, "profiles"), where("org_id", "==", orgId)));
+  const invitesSnap = await getDocs(query(collection(db, "team_invites"), where("org_id", "==", orgId)));
+  
+  return {
+    members: membersSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)),
+    invites: invitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any))
+  };
+};
+
+export const fetchSettings = async (): Promise<OrgSettings> => {
+  const orgId = await getOrgId();
+  const res = await getDoc(doc(db, "org_settings", orgId));
+  if (!res.exists()) throw new Error("Settings not found");
+  return { id: res.id, ...res.data() } as OrgSettings;
+};
+
+export const fetchMe = async (): Promise<UserProfile> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  
+  const profileDoc = await getDoc(doc(db, "profiles", user.uid));
+  if (!profileDoc.exists()) throw new Error("Profile not found");
+  
+  const data = profileDoc.data();
+  const orgId = data.org_id;
+  
+  if (orgId) {
+    const orgDoc = await getDoc(doc(db, "organizations", orgId));
+    if (orgDoc.exists()) {
+      const orgData = orgDoc.data();
+      data.org_name = orgData.name || "";
+      data.org_slug = orgData.slug || "";
+    }
+  }
+  
+  return { id: profileDoc.id, ...data } as UserProfile;
+};
 
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
-export const dismissAlert = async (
-  alertId: string
-): Promise<{ status: string; id: string }> => {
-  const headers = getAuthHeaders();
-  const res = await fetch(
-    `${API_BASE}/api/alerts/${encodeURIComponent(alertId)}`,
-    { method: "DELETE", headers }
-  );
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json();
-};
-
-export const resolveAlert = async (
-  alertId: string
-): Promise<{ status: string; id: string }> => {
-  const headers = getAuthHeaders();
-  const res = await fetch(
-    `${API_BASE}/api/alerts/${encodeURIComponent(alertId)}/resolve`,
-    { method: "PUT", headers }
-  );
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json();
-};
-
-export const inviteTeamMember = async (
-  email: string,
-  role: string = "member"
-): Promise<{ status: string; email: string }> => {
-  const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE}/api/team/invite`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, role }),
+export const dismissAlert = async (alertId: string): Promise<{ status: string; id: string }> => {
+  const orgId = await getOrgId();
+  const user = auth.currentUser;
+  
+  await setDoc(doc(db, "dismissed_alerts", alertId), {
+    alert_id: alertId,
+    org_id: orgId,
+    action: "dismissed",
+    dismissed_by: user?.uid,
+    timestamp: new Date().toISOString()
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json();
+  
+  return { status: "dismissed", id: alertId };
 };
 
-export const updateSettings = async (
-  settings: Partial<OrgSettings>
-): Promise<{ status: string }> => {
-  const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE}/api/settings`, {
-    method: "PUT",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(settings),
+export const resolveAlert = async (alertId: string): Promise<{ status: string; id: string }> => {
+  // Logic could vary, for now same as dismiss or update a status field
+  return dismissAlert(alertId);
+};
+
+export const inviteTeamMember = async (email: string, role: string = "member"): Promise<{ status: string; email: string }> => {
+  const orgId = await getOrgId();
+  const id = `inv_${Date.now()}`;
+  
+  await setDoc(doc(db, "team_invites", id), {
+    email,
+    role,
+    org_id: orgId,
+    status: "pending",
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json();
+  
+  return { status: "invited", email };
+};
+
+export const updateSettings = async (settings: Partial<OrgSettings>): Promise<{ status: string }> => {
+  const orgId = await getOrgId();
+  await setDoc(doc(db, "org_settings", orgId), settings, { merge: true });
+  return { status: "updated" };
 };

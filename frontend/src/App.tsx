@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthProvider } from "@/lib/AuthContext";
-import { supabase } from "@/lib/supabase";
-import { setApiToken } from "@/services/api";
-import type { Session } from "@supabase/supabase-js";
-import Login from "@/pages/Login";
+import { AuthProvider, useAuth } from "@/lib/AuthContext";
+import { auth } from "@/lib/firebase";
+
+// Dashboard Imports
+import { LoginPage } from "@/pages/LoginPage";
+import { SignupPage } from "@/pages/SignupPage";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { BentoRow } from "@/components/dashboard/BentoRow";
@@ -22,6 +24,16 @@ import { AlertsTab } from "@/components/dashboard/AlertsTab";
 import { SubscriptionsTab } from "@/components/dashboard/SubscriptionsTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { TeamTab } from "@/components/dashboard/TeamTab";
+
+// Landing Page Imports
+import { LandingPage } from "./pages/landing/LandingPage";
+import { OversightPage } from "./pages/landing/OversightPage";
+import { PulsePage } from "./pages/landing/PulsePage";
+import { SpendPage } from "./pages/landing/SpendPage";
+import { AboutPage } from "./pages/landing/AboutPage";
+import { UseCasesPage } from "./pages/landing/UseCasesPage";
+import { DemoPage } from "./pages/landing/DemoPage";
+import NotFound from "./pages/landing/NotFound";
 
 type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team";
 
@@ -64,42 +76,57 @@ function Dashboard() {
   );
 }
 
-const App = () => {
-  const [sessionLoaded, setSessionLoaded] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
+const AppContent = () => {
+  const { user, loading } = useAuth();
 
-  useEffect(() => {
-    // 1. Check for existing session — nothing renders until this resolves.
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setApiToken(data.session?.access_token ?? null);
-      setSessionLoaded(true);
-    });
-
-    // 2. Listen for future auth changes (sign-in, sign-out, token refresh).
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-      setApiToken(s?.access_token ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Blank screen until getSession() resolves. Zero API calls fire.
-  if (!sessionLoaded) return null;
+  if (loading) return null;
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <AuthProvider session={session}>
-          {session ? <Dashboard /> : <Login />}
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <Routes>
+      {/* Landing Page Routes */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/product/oversight" element={<OversightPage />} />
+      <Route path="/product/pulse" element={<PulsePage />} />
+      <Route path="/product/spend" element={<SpendPage />} />
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/use-cases" element={<UseCasesPage />} />
+      <Route path="/demo" element={<DemoPage />} />
+      
+      {/* Auth Routes */}
+      <Route 
+        path="/login" 
+        element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
+      />
+      <Route 
+        path="/signup" 
+        element={user ? <Navigate to="/dashboard" replace /> : <SignupPage />} 
+      />
+      
+      {/* Dashboard Routes (Protected) */}
+      <Route 
+        path="/dashboard/*" 
+        element={user ? <Dashboard /> : <Navigate to="/login" replace />} 
+      />
+      
+      {/* Fallback */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+};
+
+const App = () => {
+  return (
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </BrowserRouter>
   );
 };
 
