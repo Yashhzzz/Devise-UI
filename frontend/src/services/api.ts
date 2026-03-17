@@ -184,6 +184,20 @@ async function getOrgId(): Promise<string> {
   return profileDoc.data().org_id;
 }
 
+/**
+ * Normalizes any timestamp (Firestore Timestamp or string) to an ISO string.
+ * This ensures consistency across the dashboard and fixes "Invalid Date" errors.
+ */
+function normalizeDate(ts: any): string {
+  if (!ts) return new Date().toISOString();
+  if (ts instanceof Timestamp) return ts.toDate().toISOString();
+  if (typeof ts === 'string') {
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
 // Stub for now (not used in direct Firestore version)
 export function setApiToken(_token: string | null) {}
 
@@ -214,15 +228,11 @@ export const fetchEvents = async (
   const snapshot = await getDocs(q);
   const events = snapshot.docs.map(d => {
     const data = d.data();
-    // Normalize Firestore Timestamp to ISO string
-    const timestamp = data.timestamp instanceof Timestamp 
-      ? data.timestamp.toDate().toISOString() 
-      : data.timestamp;
-      
     return { 
       ...data, 
       event_id: d.id,
-      timestamp 
+      timestamp: normalizeDate(data.timestamp),
+      department: (!data.department || data.department === "Unknown") ? "General" : data.department
     } as DetectionEvent;
   });
 
@@ -250,8 +260,22 @@ export const fetchStats = async (): Promise<StatsResponse> => {
   // For V1-V2, we process on the client or fetch a summary doc.
   const eventsSnap = await getDocs(query(collection(db, "detection_events"), where("org_id", "==", orgId)));
   const heartbeatsSnap = await getDocs(query(collection(db, "heartbeats"), where("org_id", "==", orgId)));
-  const tamperSnap = await getDocs(query(collection(db, "tamper_alerts"), where("org_id", "==", orgId)));
-  const gapSnap = await getDocs(query(collection(db, "agent_gaps"), where("org_id", "==", orgId), where("suspicious", "==", true)));
+  
+  // Wrap index-prone queries in try-catch to prevent crashing the whole stats load
+  let tamperSnap: any = { size: 0, docs: [] };
+  let gapSnap: any = { size: 0, docs: [] };
+  
+  try {
+    tamperSnap = await getDocs(query(collection(db, "tamper_alerts"), where("org_id", "==", orgId)));
+  } catch (e) {
+    console.warn("Tamper alerts query failed (missing index?)", e);
+  }
+  
+  try {
+    gapSnap = await getDocs(query(collection(db, "agent_gaps"), where("org_id", "==", orgId), where("suspicious", "==", true)));
+  } catch (e) {
+    console.warn("Agent gaps query failed (missing index?)", e);
+  }
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -265,10 +289,7 @@ export const fetchStats = async (): Promise<StatsResponse> => {
 
   eventsSnap.docs.forEach(d => {
     const data = d.data();
-    // Normalize timestamp for comparison
-    const ts = data.timestamp instanceof Timestamp 
-      ? data.timestamp.toDate().toISOString() 
-      : data.timestamp;
+    const ts = normalizeDate(data.timestamp);
 
     tools.add(data.tool_name);
     if (data.risk_level === "high") highRiskCount++;
@@ -279,9 +300,7 @@ export const fetchStats = async (): Promise<StatsResponse> => {
 
   const onlineDevices = heartbeatsSnap.docs.filter(d => {
     const data = d.data();
-    const ts = data.timestamp instanceof Timestamp 
-      ? data.timestamp.toDate().toISOString() 
-      : data.timestamp;
+    const ts = normalizeDate(data.timestamp);
     return ts && ts >= sixMinsAgo;
   }).length;
 
@@ -314,7 +333,7 @@ export const fetchAlerts = async (): Promise<AlertItem[]> => {
       type: "high_risk",
       title: `High-risk unapproved tool: ${r.tool_name || "Unknown"}`,
       description: `${r.user_id || "?"} accessed ${r.domain || "?"} via ${r.process_name || "?"}`,
-      timestamp: r.timestamp,
+      timestamp: normalizeDate(r.timestamp),
       severity: "high"
     });
   });
@@ -328,7 +347,7 @@ export const fetchAlerts = async (): Promise<AlertItem[]> => {
       type: "tamper",
       title: "Agent binary tampered",
       description: `Device ${String(r.device_id).slice(0, 8)}… — hash mismatch detected`,
-      timestamp: r.timestamp,
+      timestamp: normalizeDate(r.timestamp),
       severity: "high"
     });
   });
@@ -362,8 +381,10 @@ export const fetchAnalytics = async (): Promise<AnalyticsResponse> => {
     const proc = e.process_name || "Unknown";
     procCounts[proc] = (procCounts[proc] || 0) + 1;
     
-    const ts = e.timestamp || "";
+    const ts = normalizeDate(e.timestamp);
+      
     if (ts && ts.length >= 13) {
+      // ISO format: YYYY-MM-DDTHH:mm:ss.sssZ
       const hour = ts.substring(11, 13) + ":00";
       timeCounts[hour] = (timeCounts[hour] || 0) + 1;
     }
@@ -560,7 +581,14 @@ export const fetchFirewallRules = async (): Promise<FirewallRule[]> => {
   const snap = await getDocs(
     collection(db, "org_settings", orgId, "firewall_rules")
   );
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as FirewallRule));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return { 
+      id: d.id, 
+      ...data,
+      updated_at: normalizeDate(data.updated_at)
+    } as FirewallRule;
+  });
 };
 
 export const updateFirewallRule = async (
@@ -598,7 +626,14 @@ export const fetchBlockEvents = async (limitN = 100): Promise<BlockEvent[]> => {
     firestoreLimit(limitN)
   );
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as BlockEvent));
+  return snap.docs.map(d => {
+    const data = d.data();
+    return { 
+      id: d.id, 
+      ...data,
+      timestamp: normalizeDate(data.timestamp)
+    } as BlockEvent;
+  });
 };
 
 export const fetchFirewallStats = async (): Promise<FirewallStats> => {
@@ -618,7 +653,13 @@ export const fetchFirewallStats = async (): Promise<FirewallStats> => {
     where("org_id", "==", orgId)
   ));
 
-  const allBlocks = allBlocksSnap.docs.map(d => d.data());
+  const allBlocks = allBlocksSnap.docs.map(d => {
+    const data = d.data();
+    return {
+      ...data,
+      timestamp: normalizeDate(data.timestamp)
+    };
+  });
   const blockedToday = allBlocks.filter(e => (e.timestamp || "") >= todayStart).length;
   const blockEventsThisWeek = allBlocks.filter(e => (e.timestamp || "") >= weekStart).length;
   
@@ -735,7 +776,14 @@ export const fetchSensitivityEvents = async (
   );
   const snap = await getDocs(q);
   const events = snap.docs
-    .map(d => ({ id: d.id, ...d.data() } as SensitivityEvent))
+    .map(d => {
+      const data = d.data();
+      return { 
+        id: d.id, 
+        ...data,
+        timestamp: normalizeDate(data.timestamp)
+      } as SensitivityEvent;
+    })
     .filter(e => !flag || e.sensitivity_flag === flag);
   return events;
 };
@@ -845,7 +893,7 @@ export const rebuildEmployeeRiskScores = async (): Promise<void> => {
         risk_score: avgScore,
         high_risk_events: highRisk,
         medium_risk_events: medRisk,
-        last_incident: sorted[0]?.timestamp || "",
+        last_incident: typeof sorted[0]?.timestamp === 'string' ? sorted[0].timestamp : (sorted[0]?.timestamp as any)?.toDate?.()?.toISOString() || "",
         top_sensitivity_type: topType,
         updated_at: new Date().toISOString(),
       }

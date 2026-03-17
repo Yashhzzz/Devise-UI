@@ -55,9 +55,9 @@ function mapDetection(event: DetectionEvent, index: number): Detection {
     activityColor: getActivityColor(event),
     activityLabel: event.tool_name,
     process: event.process_name,
-    department: event.department,
+    department: event.department || "General",
     status: mapStatus(event),
-    date: new Date(event.timestamp).toLocaleString(),
+    date: new Date(event.timestamp as any).toLocaleString(),
   };
 }
 
