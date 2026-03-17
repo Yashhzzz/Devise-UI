@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { User, Settings, Layers, HelpCircle, Moon, LogOut } from "lucide-react";
 import { MyProfilePanel } from "./MyProfilePanel";
+import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { HelpModal } from "./HelpModal";
 import { SignOutModal } from "./SignOutModal";
+import { useAuth } from "@/lib/AuthContext";
+import { useMe } from "@/hooks/useDashboard";
+import { updateMe } from "@/services/api";
 
 type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
@@ -13,9 +17,12 @@ interface UserProfileDropdownProps {
 }
 
 export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfileDropdownProps) {
+  const { user, signOut } = useAuth();
+  const { data: profile, isLoading } = useMe();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isSignOutOpen, setIsSignOutOpen] = useState(false);
 
@@ -48,9 +55,11 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
     };
   }, [isOpen, onClose]);
 
-  const toggleDarkMode = () => {
+  const toggleDarkMode = async () => {
     const newDarkMode = !isDarkMode;
     setIsDarkMode(newDarkMode);
+    
+    // UI update
     if (newDarkMode) {
       document.documentElement.classList.add("dark");
       localStorage.setItem("devise-theme", "dark");
@@ -58,17 +67,26 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
       document.documentElement.classList.remove("dark");
       localStorage.setItem("devise-theme", "light");
     }
+
+    // Sync to Firestore
+    try {
+      await updateMe({ dark_mode: newDarkMode });
+    } catch (error) {
+      console.error("Failed to sync dark mode to Firestore:", error);
+    }
   };
 
-  const handleSignOutConfirm = () => {
+  const handleSignOutConfirm = async () => {
     localStorage.clear();
-    window.location.reload(); // Simulate logging out
+    await signOut();
+    window.location.href = "/login";
   };
 
   return (
     <>
       {/* Modals are rendered outside the open check so they don't unmount when dropdown closes */}
       <MyProfilePanel isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
+      <AccountSettingsPanel isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
       <SignOutModal isOpen={isSignOutOpen} onClose={() => setIsSignOutOpen(false)} onConfirm={handleSignOutConfirm} />
 
@@ -90,7 +108,7 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
         className="flex flex-col items-center justify-center pt-5 pb-[12px] border-b border-[#F0F2F5]"
       >
         <div
-          className="flex items-center justify-center rounded-full mb-3"
+          className="flex items-center justify-center rounded-full mb-3 uppercase"
           style={{ 
             width: 48, height: 48, 
             backgroundColor: "#FF5C1A", 
@@ -101,7 +119,7 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
             boxShadow: "0 2px 8px rgba(255, 92, 26, 0.25)"
           }}
         >
-          YM
+          {profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2) || user?.email?.slice(0, 2) || "U"}
         </div>
         <span
           style={{
@@ -112,7 +130,7 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
             lineHeight: 1.2,
           }}
         >
-          Yash M
+          {profile?.full_name || user?.displayName || "User"}
         </span>
         <span
           className="mt-0.5 mb-2"
@@ -123,9 +141,10 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
             lineHeight: 1.2,
           }}
         >
-          yash@devise.ai
+          {user?.email || "..."}
         </span>
         <span
+          className="capitalize"
           style={{
             backgroundColor: "#FFF3EE",
             color: "#FF5C1A",
@@ -137,7 +156,7 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
             fontWeight: 500,
           }}
         >
-          Admin
+          {profile?.role || "Member"}
         </span>
       </div>
 
@@ -145,7 +164,7 @@ export function UserProfileDropdown({ isOpen, onClose, onTabChange }: UserProfil
       <div className="flex flex-col p-2 gap-0.5" onClick={(e) => e.stopPropagation()}>
         
         <MenuItem icon={User} label="My Profile" onClick={() => { setIsProfileOpen(true); onClose(); }} />
-        <MenuItem icon={Settings} label="Account Settings" onClick={() => { onTabChange("settings"); onClose(); }} />
+        <MenuItem icon={Settings} label="Account Settings" onClick={() => { setIsAccountOpen(true); onClose(); }} />
         <MenuItem icon={Layers} label="Subscription" onClick={() => { onTabChange("subscriptions"); onClose(); }} />
         <MenuItem icon={HelpCircle} label="Help & Documentation" onClick={() => { setIsHelpOpen(true); onClose(); }} />
         

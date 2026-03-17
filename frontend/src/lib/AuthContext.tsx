@@ -13,11 +13,13 @@ import {
   updateProfile,
   type User 
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { updateLastActive } from "@/services/api";
 import { auth, db } from "@/lib/firebase";
 
 interface AuthContextType {
   user: User | null;
+  session: User | null; // Alias for compatibility
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>;
@@ -35,8 +37,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      if (firebaseUser) {
+        // Update last_active on login
+        await updateLastActive();
+        
+        // Initial theme sync from Firestore
+        const profileRef = doc(db, "profiles", firebaseUser.uid);
+        const profileSnap = await getDoc(profileRef);
+        if (profileSnap.exists()) {
+          const data = profileSnap.data();
+          if (data.dark_mode !== undefined) {
+            const isDark = data.dark_mode;
+            document.documentElement.classList.toggle("dark", isDark);
+            localStorage.setItem("theme", isDark ? "dark" : "light");
+          }
+        }
+      }
       setLoading(false);
     });
 
@@ -106,11 +124,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const signOut = async () => {
+    try {
+      if (user) {
+        await updateLastActive();
+      }
+    } catch (e) {
+      console.error("Failed to update last_active on sign out", e);
+    }
     await firebaseSignOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session: user, loading, signIn, signUp, signOut }}>
       {!loading && children}
     </AuthContext.Provider>
   );

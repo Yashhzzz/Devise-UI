@@ -34,7 +34,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
         <div className="p-5 flex flex-col gap-3">
           <a
-            href="#"
+            href="https://docs.devise.ai"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center justify-between p-4 rounded-xl border border-[#E2E8F0] hover:border-[#FF5C1A] hover:bg-[#FFF3EE] transition-all group cursor-pointer"
           >
             <span style={{ fontSize: 15, fontWeight: 500, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }} className="group-hover:text-[#FF5C1A] transition-colors">
@@ -44,7 +46,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
           </a>
 
           <a
-            href="#"
+            href="https://docs.devise.ai/api"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center justify-between p-4 rounded-xl border border-[#E2E8F0] hover:border-[#FF5C1A] hover:bg-[#FFF3EE] transition-all group cursor-pointer"
           >
             <span style={{ fontSize: 15, fontWeight: 500, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }} className="group-hover:text-[#FF5C1A] transition-colors">

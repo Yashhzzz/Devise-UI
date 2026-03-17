@@ -121,6 +121,14 @@ export interface UserProfile {
   avatar_url: string | null;
   org_name: string;
   org_slug: string;
+  created_at?: string | Timestamp;
+  last_active?: string | Timestamp;
+  dark_mode?: boolean;
+  notification_prefs?: {
+    high_risk_alerts: boolean;
+    daily_summary: boolean;
+    block_notifications: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +427,36 @@ export const fetchMe = async (): Promise<UserProfile> => {
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
+export const updateMe = async (data: Partial<UserProfile>): Promise<{ status: string }> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  
+  const profileRef = doc(db, "profiles", user.uid);
+  await setDoc(profileRef, data, { merge: true });
+  return { status: "updated" };
+};
+
+export const updateLastActive = async (): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+  
+  const profileRef = doc(db, "profiles", user.uid);
+  await setDoc(profileRef, {
+    last_active: serverTimestamp()
+  }, { merge: true });
+};
+
+export const getUserDetectionCount = async (email: string): Promise<number> => {
+  const orgId = await getOrgId();
+  const q = query(
+    collection(db, "detection_events"),
+    where("org_id", "==", orgId),
+    where("user_id", "==", email) // Assuming user_id field in events stores email
+  );
+  const snap = await getDocs(q);
+  return snap.size;
+};
+
 export const dismissAlert = async (alertId: string): Promise<{ status: string; id: string }> => {
   const orgId = await getOrgId();
   const user = auth.currentUser;
