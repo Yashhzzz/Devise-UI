@@ -560,11 +560,11 @@ function EventDetailPanel({ event, onClose }: { event: Detection | null; onClose
             <h4 className="text-[12px] font-bold text-[#94A3B8] tracking-widest uppercase mb-3">User Context</h4>
             <div className="flex items-center gap-3 p-4 bg-white border border-[#F0F2F5] rounded-xl cursor-pointer hover:border-[#CBD5E1] transition-colors">
               <div className="w-10 h-10 rounded-full bg-[#FF5C1A] flex items-center justify-center text-white font-bold text-sm">
-                JS
+                {event.id.slice(0, 2).toUpperCase()}
               </div>
               <div className="flex-1">
-                <p className="font-bold text-[#1A1A2E] text-sm">John Smith</p>
-                <p className="text-[#64748B] text-xs">john.smith@devise.ai</p>
+                <p className="font-bold text-[#1A1A2E] text-sm">Target User</p>
+                <p className="text-[#64748B] text-xs">{event.id.slice(0, 12)}...</p>
               </div>
               <div className="text-right">
                 <span className="text-[#1A1A2E] text-sm font-semibold">{event.department}</span>

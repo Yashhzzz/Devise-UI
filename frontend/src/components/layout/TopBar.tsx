@@ -3,6 +3,8 @@ import { useState } from "react";
 import { SearchModal } from "./SearchModal";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { UserProfileDropdown } from "./UserProfileDropdown";
+import { useAuth } from "@/lib/AuthContext";
+import { useMe } from "@/hooks/useDashboard";
 
 type Tab = "overview" | "live-feed" | "analytics" | "devices" | "alerts" | "subscriptions" | "settings" | "team" | "firewall" | "data-risk";
 
@@ -115,6 +117,8 @@ const tabs: { id: Tab; label: string }[] = [
 ];
 
 export function TopBar({ activeTab, onTabChange }: TopBarProps) {
+  const { user } = useAuth();
+  const { data: profile } = useMe();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -145,7 +149,7 @@ export function TopBar({ activeTab, onTabChange }: TopBarProps) {
           className="font-bold leading-tight"
           style={{ fontSize: 22, color: "#1A1A2E", fontFamily: "Inter, sans-serif" }}
         >
-          Good morning, Yash
+          Good morning, {profile?.full_name?.split(' ')[0] || "Yash"}
         </span>
         <span
           className="leading-tight mt-0.5"
@@ -270,19 +274,19 @@ export function TopBar({ activeTab, onTabChange }: TopBarProps) {
                 letterSpacing: "0.5px"
               }}
             >
-              YM
+              {profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2) || user?.email?.slice(0, 2).toUpperCase() || "U"}
             </div>
             <div className="flex flex-col text-left">
               <span
                 className="font-semibold"
                 style={{ fontSize: 14, color: "#1A1A2E", lineHeight: 1.2, fontFamily: "Inter, sans-serif" }}
               >
-                Yash M
+                {profile?.full_name || user?.email?.split('@')[0] || "User"}
               </span>
               <span
                 style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.2, fontFamily: "Inter, sans-serif" }}
               >
-                yash@devise.ai
+                {user?.email || "..."}
               </span>
             </div>
             <ChevronDown size={16} strokeWidth={2} style={{ color: "#94A3B8", marginLeft: 4 }} />

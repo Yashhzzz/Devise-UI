@@ -633,7 +633,7 @@ export function LiveFeedTab() {
 
                       {/* Department */}
                       <td style={{ padding: "18px 12px" }}>
-                        <span style={{ fontSize: 14, color: "#1A1A2E" }}>{ev.department}</span>
+                        <span style={{ fontSize: 14, color: "#1A1A2E" }}>{ev.department || "General"}</span>
                       </td>
 
                       {/* Approved */}

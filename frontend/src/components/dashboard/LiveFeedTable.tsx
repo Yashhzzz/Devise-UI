@@ -41,7 +41,7 @@ export function LiveFeedTable({ events }: LiveFeedTableProps) {
               <TableCell><RiskBadge level={event.risk_level} /></TableCell>
               <TableCell className="text-sm font-mono text-muted-foreground">{event.process_name}</TableCell>
               <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">{event.domain}</TableCell>
-              <TableCell className="text-sm">{event.user_id}</TableCell>
+              <TableCell className="text-sm">{event.department || "General"}</TableCell>
               <TableCell>
                 {event.is_approved ? (
                   <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15">

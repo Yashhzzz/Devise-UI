@@ -212,7 +212,19 @@ export const fetchEvents = async (
   }
 
   const snapshot = await getDocs(q);
-  const events = snapshot.docs.map(doc => doc.data() as DetectionEvent);
+  const events = snapshot.docs.map(d => {
+    const data = d.data();
+    // Normalize Firestore Timestamp to ISO string
+    const timestamp = data.timestamp instanceof Timestamp 
+      ? data.timestamp.toDate().toISOString() 
+      : data.timestamp;
+      
+    return { 
+      ...data, 
+      event_id: d.id,
+      timestamp 
+    } as DetectionEvent;
+  });
 
   return {
     total: events.length,
@@ -241,29 +253,40 @@ export const fetchStats = async (): Promise<StatsResponse> => {
   const tamperSnap = await getDocs(query(collection(db, "tamper_alerts"), where("org_id", "==", orgId)));
   const gapSnap = await getDocs(query(collection(db, "agent_gaps"), where("org_id", "==", orgId), where("suspicious", "==", true)));
 
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const sixMinsAgo = new Date(now.getTime() - 6 * 60000).toISOString();
+  
   const tools = new Set();
   let highRiskCount = 0;
   let unapprovedCount = 0;
   let highRiskUnapproved = 0;
+  let todayDetections = 0;
 
   eventsSnap.docs.forEach(d => {
     const data = d.data();
+    // Normalize timestamp for comparison
+    const ts = data.timestamp instanceof Timestamp 
+      ? data.timestamp.toDate().toISOString() 
+      : data.timestamp;
+
     tools.add(data.tool_name);
     if (data.risk_level === "high") highRiskCount++;
     if (!data.is_approved) unapprovedCount++;
     if (data.risk_level === "high" && !data.is_approved) highRiskUnapproved++;
+    if (ts && ts >= todayStart) todayDetections++;
   });
 
-  const now = new Date();
-  const sixMinsAgo = new Date(now.getTime() - 6 * 60000).toISOString();
-  
   const onlineDevices = heartbeatsSnap.docs.filter(d => {
-    const ts = d.data().timestamp;
+    const data = d.data();
+    const ts = data.timestamp instanceof Timestamp 
+      ? data.timestamp.toDate().toISOString() 
+      : data.timestamp;
     return ts && ts >= sixMinsAgo;
   }).length;
 
   return {
-    totalDetections: eventsSnap.size,
+    totalDetections: todayDetections, // Label in UI is "Events Today"
     uniqueTools: tools.size,
     highRiskCount,
     unapprovedCount,
